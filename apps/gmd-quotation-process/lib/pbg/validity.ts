@@ -122,3 +122,41 @@ export function computeExtendedValidity(
   if (!duration) return null;
   return addDuration(lastSupplyDate, duration);
 }
+
+/** How close to expiry counts as "expiring soon". */
+export const EXPIRY_WARNING_DAYS = 30;
+
+export type ValidityStatus = "expired" | "expiring" | "ok";
+
+/**
+ * Where a PBG sits against its contract validity date, for the row highlight.
+ *
+ * `null` when there is no usable date: a bank guarantee with no computed
+ * validity is unknown, not safe, so it is left untinted rather than coloured
+ * green-by-default.
+ *
+ * Both dates are compared as plain UTC days, so a guarantee expiring today
+ * reads as "expiring" (0 days left) rather than flipping to "expired" partway
+ * through the day depending on the viewer's clock.
+ */
+export function validityStatus(
+  extendedValidity: string | null | undefined,
+  today: Date = new Date(),
+): ValidityStatus | null {
+  const iso = String(extendedValidity ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+
+  const end = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(end.getTime())) return null;
+
+  const startOfToday = Date.UTC(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    today.getUTCDate(),
+  );
+  const daysLeft = Math.floor((end.getTime() - startOfToday) / 86_400_000);
+
+  if (daysLeft < 0) return "expired";
+  if (daysLeft <= EXPIRY_WARNING_DAYS) return "expiring";
+  return "ok";
+}
