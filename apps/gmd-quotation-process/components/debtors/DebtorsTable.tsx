@@ -16,7 +16,7 @@ import type { TablePrefs } from "@/lib/tablePrefs";
 import { LEGAL_STATUSES, isUnderLitigation, resolveProvision, splitDues } from "@/lib/legalStatus";
 import type { LegalCaseView } from "@/lib/legalStatus";
 import { formatIndianNumber } from "@/lib/formatCurrency";
-import { EMPTY_FOLLOW_UP, bgExposureByName, bgFor, billInfoFor, downloadCsv, followUpFor, toCsv } from "@/lib/debtorJoins";
+import { EMPTY_FOLLOW_UP, bgExposureByName, bgFor, billInfoFor, creditNoteRefOf, creditNotesByBill, downloadCsv, followUpFor, toCsv } from "@/lib/debtorJoins";
 import type { BgRow, BillInfo, FollowUp } from "@/lib/debtorJoins";
 import { dueToday, partyMsme } from "@/lib/msme";
 import type { MsmeSettings, PartyMsme } from "@/lib/msme";
@@ -322,6 +322,12 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
   const parties = useMemo(() => sortedRows.map((r) => r.original), [sortedRows]);
   const sumOf = (get: (p: PartyRow) => number) => parties.reduce((t, p) => t + get(p), 0);
 
+  const creditNotes = useMemo(() => creditNotesByBill(rows), [rows]);
+  // Credit shown against its bill ("SR26Y-00009") and on the credit row itself ("Against GD26Y-00139").
+  const creditRefOf = (r: DebtorRow) => {
+    const ref = creditNoteRefOf(r.particular, r.tCode);
+    return ref ? `Against ${ref}` : (creditNotes.get((r.vrNo ?? "").replace(/\s+/g, " ").trim().toUpperCase())?.join(", ") ?? "");
+  };
   const bills = useMemo(() => {
     if (!open) return [];
     return rows
@@ -347,10 +353,10 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
     downloadCsv(
       `statement_${accName.replace(/[^A-Za-z0-9]+/g, "_")}.csv`,
       toCsv(
-        ["Invoice no", "Date", "Order no", "PO ref", "Items", "Amount", "Allocated", "Balance", "Due date", "Days overdue"],
+        ["Invoice no", "Date", "Order no", "PO ref", "Items", "Amount", "Allocated", "Balance", "Due date", "Days overdue", "Credit note"],
         bills.map(({ r, days, bal }) => {
           const i = billInfoFor(billInfo, r.vrNo);
-          return [r.vrNo, formatDate(r.vrDate), i?.orderNo ?? r.particular, i?.poRef, i?.items, r.drAmt, r.drAllocAmt, bal, formatDate(r.dueDate), days];
+          return [r.vrNo, formatDate(r.vrDate), i?.orderNo ?? r.particular, i?.poRef, i?.items, r.drAmt, r.drAllocAmt, bal, formatDate(r.dueDate), days, creditRefOf(r)];
         }),
       ),
     );
@@ -516,7 +522,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
                         <table className="w-full border-collapse text-[13px]">
                           <thead>
                             <tr>
-                              {["Invoice no", "Date", "Order no", "PO ref", "Item", "Amount", "Allocated", "Balance", "Due date", "Days overdue"].map((h, i) => (
+                              {["Invoice no", "Date", "Order no", "PO ref", "Item", "Amount", "Allocated", "Balance", "Due date", "Days overdue", "Credit note"].map((h, i) => (
                                 <th key={h} className={`${TH} ${i >= 5 && i !== 8 ? "text-right" : ""}`}>{h}</th>
                               ))}
                               <th className={TH} colSpan={2}>
@@ -542,6 +548,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
                                 </td>
                                 <td className="px-3 py-1.5">{formatDate(r.dueDate)}</td>
                                 <td className={`${TD} ${days !== null && days > 45 ? "font-semibold text-red-700" : days !== null && days > 30 ? "font-semibold text-amber-700" : ""}`}>{days ?? "-"}</td>
+                                <td className="px-3 py-1.5">{creditRefOf(r) || "-"}</td>
                                 <td className="px-3 py-1.5" colSpan={2}><DocLinks info={info} /></td>
                               </tr>
                               );

@@ -26,3 +26,14 @@ test('BG exposure counts only open BGs, name matched loosely on case/spaces', ()
 test('csv escapes quotes', () => {
   assert.equal(toCsv(['a'], [['x"y']]), '"a"\r\n"x""y"')
 })
+
+test("creditNoteRefOf reads the bill a P row credits, and nothing else", async () => {
+  const { creditNoteRefOf, creditNotesByBill } = await import("../lib/debtorJoins");
+  assert.equal(creditNoteRefOf("Sales against Order/Bill No-GD26Y-00139", "P"), "GD26Y-00139");
+  assert.equal(creditNoteRefOf("Sales against Challan No- GD26Y-00139 Order No-OD26Y-00108 Dt: 14-OCT-26", "S"), null);
+  assert.equal(creditNoteRefOf("Sales against Challan No- GD26Y-00139 Order No-OD26Y-00108 Dt: 14-OCT-26", "P"), null);
+  assert.equal(creditNoteRefOf("Opening balance", "P"), null);
+  assert.equal(creditNoteRefOf(null, "P"), null);
+  const m = creditNotesByBill([{ vrNo: "SR26Y-00009", tCode: "P", particular: "Sales against Order/Bill No-GD26Y-00139" }, { vrNo: "GD26Y-00139", tCode: "S", particular: "x" }]);
+  assert.deepEqual(m.get("GD26Y-00139"), ["SR26Y-00009"]);
+});

@@ -76,6 +76,25 @@ export const bgFor = (m: Map<string, number>, partyName: string) => m.get(key(pa
 
 export const followUpFor = (m: Record<string, FollowUp>, accCode: string, vrNo?: string | null) => m[followUpKey(accCode, vrNo)];
 
+/**
+ * A credit / sales-return row is TCODE "P" with PARTICULAR "Sales against Order/Bill No-<VRNO>"; returns that VRNO, else null.
+ * shortcut: matches this one wording (2 of 269 rows today), upgrade if Accounts book credit notes with another format.
+ */
+export function creditNoteRefOf(particular: string | null | undefined, tCode: string | null | undefined): string | null {
+  if (tCode?.trim().toUpperCase() !== "P") return null;
+  return /Order\/Bill\s*No\s*-\s*([A-Za-z0-9][A-Za-z0-9/-]*)/i.exec(particular ?? "")?.[1] ?? null;
+}
+
+/** Bill VRNO (normalised) to the credit-note voucher numbers that knock it off. */
+export function creditNotesByBill(rows: { vrNo: string | null; tCode: string | null; particular: string | null }[]): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const r of rows) {
+    const ref = creditNoteRefOf(r.particular, r.tCode);
+    if (ref && r.vrNo) m.set(key(ref), [...(m.get(key(ref)) ?? []), r.vrNo]);
+  }
+  return m;
+}
+
 export function toCsv(header: string[], rows: (string | number | null | undefined)[][]): string {
   const q = (v: string | number | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   return [header, ...rows].map((r) => r.map(q).join(",")).join("\r\n");
