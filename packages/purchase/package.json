@@ -1,0 +1,36 @@
+{
+  "name": "@gmd/purchase",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    "./ui": "./src/ui/PurchaseDashboard.tsx",
+    "./server": "./src/server/index.ts",
+    "./columns": "./src/columns.ts",
+    "./in-transit": "./src/lib/inTransit.ts",
+    "./flags": "./src/flags.ts",
+    "./types": "./src/types.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "dependencies": {
+    "@gmd/dashboard": "workspace:*",
+    "@gmd/db-stock": "workspace:*",
+    "@gmd/ui": "workspace:*",
+    "lucide-react": "^1.23.0",
+    "server-only": "^0.0.1",
+    "sonner": "^2.0.7"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5",
+    "tsx": "^4.19.0"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --conditions=react-server --test test/*.test.ts"
+  }
+}

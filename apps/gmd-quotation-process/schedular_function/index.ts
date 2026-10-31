@@ -236,3 +236,9 @@ export {
   type LedgerPartReport,
   type ScheduledLedgerSyncResult,
 } from "./ledger-sync";
+
+export {
+  runScheduledPurchaseOrders,
+  type RunPurchaseOrdersOptions,
+  type ScheduledPurchaseResult,
+} from "./purchase-orders";

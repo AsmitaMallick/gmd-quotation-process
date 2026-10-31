@@ -3,6 +3,7 @@
 @import "shadcn/tailwind.css";
 /* Shared packages register their own sources with Tailwind. */
 @import "@gmd/physical-stock/styles.css";
+@import "@gmd/purchase/styles.css";
 
 @custom-variant dark (&:is(.dark *));
 

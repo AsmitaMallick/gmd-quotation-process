@@ -37,6 +37,9 @@ export const COLUMNS = [
   "MAJOR/MINOR MARKING",
   "HEAT NO",
   "SERIAL NO",
+  // Derived from the purchase order lines, not from the stock sheet. Last, so
+  // every existing column keeps its index (edits look fields up by index).
+  "IN TRANSIT",
 ] as const;
 
 export type PhysicalStockHeader = (typeof COLUMNS)[number];
@@ -78,6 +81,7 @@ export const FIELDS = [
   "majorminor_marking",
   "heat_no",
   "serial_no",
+  "in_transit",
 ] as const satisfies readonly (keyof PhysicalStockRow)[];
 
 export type PhysicalStockField = (typeof FIELDS)[number];
@@ -86,6 +90,7 @@ export const fieldOf = (header: string): PhysicalStockField | undefined =>
   FIELDS[COLUMNS.indexOf(header as PhysicalStockHeader)];
 
 export const NUMERIC_COLUMNS: ReadonlySet<string> = new Set([
+  "IN TRANSIT",
   "RECEIVED QTY.",
   "DISPATCH QTY.",
   "AVAILABLE QTY.",

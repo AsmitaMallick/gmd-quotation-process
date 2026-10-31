@@ -15,6 +15,7 @@
   "dependencies": {
     "@gmd/db-stock": "workspace:*",
     "@gmd/physical-stock": "workspace:*",
+    "@gmd/purchase": "workspace:*",
     "@gmd/ui": "workspace:*",
     "bcrypt": "^6.0.0",
     "flags": "^4.3.1",

@@ -81,3 +81,52 @@ model User {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 }
+
+// One line of a purchase order, mirrored from the `PURCHASE ORD AND GRN` tab of
+// the GMD EXECUTION TRACKING workbook (see `docs/purchase-in-transit.md`).
+//
+// `balanceQty` is the sheet's own BALANCE column: what is ordered but not yet
+// received against a GRN — the in-transit quantity. `salesContract` (SALES_CONT)
+// is what ties that quantity back to the sales order it was bought for.
+//
+// Strings, like PhysicalStock, because the cells are not clean enough to trust
+// a numeric column; `lib/inTransit.ts` parses on read.
+model PurchaseOrderLine {
+  id            String   @id @default(cuid())
+  poNo          String // VRNO
+  poLineNo      String // SLNO
+  poDate        String? // VRDATE, dd-MMM-yyyy
+  itemCode      String? // ITEM_CODE -> PhysicalStock.erp_code
+  itemName      String?
+  supplierCode  String? // ACC_CODE
+  supplierName  String? // ACC_NAME
+  uom           String? // UM
+  altUom        String? // AUM
+  netQtyOrder   String? // NET_QTYORDER
+  qtyExecuted   String? // QTYEXECUTE
+  balanceQty    String? // BALANCE — in transit
+  rate          String?
+  basicAmount   String? // BASIC_AMT
+  exchangeRate  String? // EXCHANGE_RATE
+  deliverySched String? // DELIVERY_SCH
+  grnDate       String? // GRN_VRDATE
+  salesContract String? // SALES_CONT
+  partyRefNo    String? // PARTYREFNO
+  partyRefDate  String? // PARTYREFDATE
+
+  // Derived by the sync with `@gmd/purchase/in-transit`, so every filter and
+  // total is one Prisma query instead of parsing 13k strings per request.
+  // `inTransit` is BALANCE (floored at 0), falling back to ordered - received;
+  // `lineValue` is BASIC_AMT parsed. Both null when the cells are unparseable.
+  inTransit     Float?
+  lineValue     Float?
+
+  syncedAt      DateTime @default(now())
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  @@unique([poNo, poLineNo])
+  @@index([itemCode])
+  @@index([salesContract])
+  @@index([inTransit])
+}

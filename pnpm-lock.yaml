@@ -44,6 +44,9 @@ importers:
       '@gmd/physical-stock':
         specifier: workspace:*
         version: link:../../packages/physical-stock
+      '@gmd/purchase':
+        specifier: workspace:*
+        version: link:../../packages/purchase
       '@gmd/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -400,6 +403,9 @@ importers:
       '@gmd/physical-stock':
         specifier: workspace:*
         version: link:../../packages/physical-stock
+      '@gmd/purchase':
+        specifier: workspace:*
+        version: link:../../packages/purchase
       '@gmd/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -631,6 +637,46 @@ importers:
       '@googleapis/sheets':
         specifier: ^18.0.1
         version: 18.1.1
+      lucide-react:
+        specifier: ^1.23.0
+        version: 1.52.0(@types/react@19.3.0)(react@19.2.4)
+      react:
+        specifier: ^19
+        version: 19.2.4
+      react-dom:
+        specifier: ^19
+        version: 19.2.4(react@19.2.4)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
+      sonner:
+        specifier: ^2.0.7
+        version: 2.0.8(@types/react@19.3.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+    devDependencies:
+      '@types/react':
+        specifier: ^19
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19
+        version: 19.3.0(@types/react@19.3.0)
+      tsx:
+        specifier: ^4.19.0
+        version: 4.23.15
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
+  packages/purchase:
+    dependencies:
+      '@gmd/dashboard':
+        specifier: workspace:*
+        version: link:../dashboard
+      '@gmd/db-stock':
+        specifier: workspace:*
+        version: link:../db-stock
+      '@gmd/ui':
+        specifier: workspace:*
+        version: link:../ui
       lucide-react:
         specifier: ^1.23.0
         version: 1.52.0(@types/react@19.3.0)(react@19.2.4)

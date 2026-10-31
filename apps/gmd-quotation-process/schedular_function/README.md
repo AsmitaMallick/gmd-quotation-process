@@ -34,6 +34,7 @@ every 2 hours. All are staggered so no two heavy ones collide.
 | C Batch marks | `POST /api/scheduler/c-batch` | `c-batch-sync` | `ITEM MASTER ERP` |
 | ERP Contract No sync | `POST /api/scheduler/erp-contract-no` | `erp-contract-no-sync` | `SALE_BILL`, `MC` |
 | Ledger sync *(daily, 01:55)* | `POST /api/scheduler/ledger` | `ledger-sync` | `DEBTORS`, `CREDITORS`, `ADVANCE TO CREDITORS` -> `Debtor`, `Creditor`, `CreditorAdvance` |
+| Purchase Order / GRN sync | `POST /api/scheduler/purchase-orders` | `purchase-orders-sync` | `PURCHASE ORD AND GRN` -> stock DB `PurchaseOrderLine` |
 
 The stagger is deliberate. `raw-material`, `supply-history` and
 `contract-review` each full-table-read the tables the others write. `bom-mast`
@@ -1404,3 +1405,56 @@ per-step diff:
 ```
 docker logs -f gmd-quotation-process | grep SCHEDULER
 ```
+## `purchase-orders`
+
+`POST /api/scheduler/purchase-orders` → `runScheduledPurchaseOrders` →
+`lib/purchaseOrderSync.ts`.
+
+Copies the `PURCHASE ORD AND GRN` tab of the GMD EXECUTION TRACKING workbook
+(gid from `PURCHASE_ORD_GRN_GID`, defaulting to the live tab) into the stock
+DB's `PurchaseOrderLine`. That table is what the Purchase dashboard reads, and
+what fills the `IN TRANSIT` column on Physical Stock.
+
+Not yet staggered into the hourly rota: it is cheap (one tab read, ~3.4k rows)
+and nothing else writes the table, so it can take any free slot.
+
+### Why it copies instead of computing
+
+The ERP already works out what is still to come, in the tab's `BALANCE` column.
+The sync stores it, and `@gmd/purchase/in-transit` only falls back to
+`NET_QTYORDER - QTYEXECUTE` when the balance cell is blank or junk. Measured on
+the live tab on 2026-10-31: **0 of 3,439 rows** had the two disagree, so the
+fallback is a safety net, not a second opinion.
+
+### What the live tab actually looks like
+
+Measured the same day, before the first run:
+
+| | |
+|---|---|
+| Data rows | 3,439 (plus 1 repeated header row, dropped) |
+| Duplicate `(VRNO, SLNO)` | 0 — the unique key holds |
+| Open lines (material to come) | 385 |
+| …of those, no `SALES_CONT` | 236 (61%) |
+| Over-received lines (negative balance) | 7 |
+| Items with stock on the way | 263 |
+| Items with mixed units | 0 |
+
+Two of those matter when reading the dashboard:
+
+- **61% of open lines carry no sales contract.** Order-level tagging is real but
+  partial — the summary counts them separately as "untagged" rather than
+  pretending every in-transit item belongs to an order.
+- **7 lines have been received over the order quantity** (e.g. `PE24Y-00065/11`,
+  ordered 3, received 25). Their in-transit is floored at 0, never allowed to
+  subtract from another line's, and the row is tinted red.
+
+### Manual runs
+
+```
+pnpm --filter gmd-quotation-process po:sync             # dry run
+pnpm --filter gmd-quotation-process po:sync -- --limit 500
+pnpm --filter gmd-quotation-process po:sync:apply       # writes
+```
+
+`?dryRun=1` and `?limit=` do the same on the endpoint.

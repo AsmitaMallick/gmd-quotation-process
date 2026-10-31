@@ -1,0 +1,5 @@
+/* Registers this package (and its @gmd deps) with the consuming app's Tailwind build.
+   Usage (app globals.css, after @import "tailwindcss"): @import "@gmd/purchase/styles.css"; */
+@import "@gmd/dashboard/styles.css";
+@import "@gmd/ui/styles.css";
+@source "./";

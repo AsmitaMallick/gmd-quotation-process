@@ -5,6 +5,7 @@ import {
   listPhysicalStock,
   updatePhysicalStockField,
 } from "@gmd/physical-stock/server";
+import { inTransitForItems } from "@gmd/purchase/server";
 import { editableFieldsFor } from "@gmd/physical-stock/flags";
 import type { NewItemInput } from "@gmd/physical-stock/types";
 import { getPhysicalStockFlags } from "@/lib/physical-stock-flags";
@@ -23,7 +24,24 @@ export async function load() {
   const denied = await unauthorized();
   if (denied) return denied;
   try {
-    return { success: true as const, data: { items: await listPhysicalStock() } };
+    const items = await listPhysicalStock();
+    // Ordered but not yet received, by ERP code. A failure here must not take
+    // the stock page down with it: the column falls back to blank (unknown).
+    let inTransit = new Map<string, number>();
+    try {
+      inTransit = await inTransitForItems(items.map((i) => (i.erp_code ?? "").trim()));
+    } catch (err) {
+      console.error("[physical-stock] in-transit lookup failed", err);
+    }
+    return {
+      success: true as const,
+      data: {
+        items: items.map((item) => ({
+          ...item,
+          in_transit: inTransit.get((item.erp_code ?? "").trim()) ?? null,
+        })),
+      },
+    };
   } catch (err) {
     return { success: false as const, error: err instanceof Error ? err.message : String(err) };
   }
