@@ -15,7 +15,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "GMD Quotation Process",
+  title: "GMD One Person Lead Framework",
   description: "A web application for managing quotations in the GMD quotation process.",
 };
 

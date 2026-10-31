@@ -6,7 +6,7 @@ import { getBomRules } from "./actions";
 import AutoBomManager from "./AutoBomManager";
 
 export const metadata = {
-  title: "Auto BOM | GMD Quotation Process",
+  title: "Auto BOM | GMD One Person Lead Framework",
 };
 
 export const dynamic = "force-dynamic";
