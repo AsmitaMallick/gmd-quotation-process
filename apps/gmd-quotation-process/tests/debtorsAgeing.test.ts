@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { bucketOf, daysOverdue, outstanding, summarise } from '../lib/debtorsAgeing.js'
+import { BUCKETS, bucketOf, daysOverdue, effectiveDueDate, outstanding, summarise } from '../lib/debtorsAgeing.js'
 import type { DebtorRow } from '../lib/debtors.js'
 
 const today = new Date(2026, 9, 31)
@@ -34,4 +34,38 @@ test('credits are separate, never netted into dues', () => {
   assert.equal(s.credits, 200)
   assert.equal(s.net, 1300)
   assert.equal(s.parties.length, 1)
+})
+
+test('creditor side flips the sign', () => {
+  const r = { unAllocDr: 100, unAllocCr: 400 }
+  assert.equal(outstanding(r), -300)
+  assert.equal(outstanding(r, 'creditor'), 300)
+})
+
+test('advances with no bills give a negative net, party still listed', () => {
+  const rows = [row({ accCode: 'A1', accName: 'Tangfa', vrDate: '2026-01-01', unAllocDr: 500 })]
+  const s = summarise(rows, new Date('2026-10-31'), { side: 'creditor' })
+  assert.equal(s.parties.length, 1)
+  assert.equal(s.parties[0].net, -500)
+  assert.equal(s.totalDues, 0)
+  assert.ok(BUCKETS.every((b) => s.buckets[b] >= 0))
+})
+
+test('effectiveDueDate falls back to vrDate', () => {
+  assert.equal(effectiveDueDate(null, '2026-05-01'), '2026-05-01')
+  assert.equal(effectiveDueDate('2026-06-01', '2026-05-01'), '2026-06-01')
+  assert.equal(effectiveDueDate(null, null), null)
+})
+
+test('bucket totals equal the sum of party dues', () => {
+  const dues = ['2026-11-30', '2026-10-15', '2026-09-15', '2026-08-15', '2026-06-01', '2025-01-01']
+  const rows = dues.map((d, i) => row({ accCode: `P${i}`, dueDate: `${d}T00:00:00.000Z`, unAllocDr: 100 * (i + 1) }))
+  const s = summarise(rows, today)
+  assert.ok(BUCKETS.every((b) => s.buckets[b] > 0))
+  assert.equal(BUCKETS.reduce((t, b) => t + s.buckets[b], 0), s.totalDues)
+})
+
+test('missing due date uses vrDate for ageing', () => {
+  const s = summarise([row({ vrDate: '2025-01-01T00:00:00.000Z', unAllocDr: 100 })], today)
+  assert.equal(s.buckets['180+'], 100)
 })
