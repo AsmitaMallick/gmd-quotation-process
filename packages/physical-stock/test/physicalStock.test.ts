@@ -33,7 +33,7 @@ test("new-item identity and qty merge", () => {
 });
 
 test("mergeRows adds qty and joins text fields", () => {
-  const target = { received_qty: "5", dispatch_qty: "1", rate_unit: "10", remarks: "a", item_type: "X", cost: null };
+  const target = { received_qty: "5", dispatch_qty: "1", remarks: "a", item_type: "X", cost: "10" };
   const source = { received_qty: "2", dispatch_qty: null, remarks: "b", item_type: "X", cost: "7" };
   assert.deepEqual(mergeRows(target, source), {
     received_qty: "7",
@@ -41,7 +41,6 @@ test("mergeRows adds qty and joins text fields", () => {
     available_qty: "6",
     item_wise_value: "60.00",
     remarks: "a, b",
-    cost: "7",
   });
 });
 

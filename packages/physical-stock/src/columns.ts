@@ -19,7 +19,6 @@ export const COLUMNS = [
   "REMARKS",
   "sum of PHYSICAL stock",
   "stock as per erp",
-  "rate/unit",
   "item wise-value",
   "MOVING WITHIN 3 MONTHS",
   "Order Ag Approval recvd",
@@ -61,7 +60,6 @@ export const FIELDS = [
   "remarks",
   "sum_of_physical_stock",
   "stock_as_per_erp",
-  "rate_unit",
   "item_wise_value",
   "moving_within_3_months",
   "order_ag_approval_recvd",
@@ -93,7 +91,6 @@ export const NUMERIC_COLUMNS: ReadonlySet<string> = new Set([
   "AVAILABLE QTY.",
   "sum of PHYSICAL stock",
   "stock as per erp",
-  "rate/unit",
   "item wise-value",
   "PURCHASE IN 26-27",
   "dispatched in 26-27",
@@ -399,9 +396,9 @@ function parseNum(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** `rate/unit * available qty`, two decimals; a blank operand counts as 0. */
-export function computeItemWiseValue(rateUnit: unknown, availableQty: unknown): string {
-  return ((parseNum(rateUnit) ?? 0) * (parseNum(availableQty) ?? 0)).toFixed(2);
+/** `cost * available qty` (cost comes from the BOM master), two decimals; a blank operand counts as 0. */
+export function computeItemWiseValue(cost: unknown, availableQty: unknown): string {
+  return ((parseNum(cost) ?? 0) * (parseNum(availableQty) ?? 0)).toFixed(2);
 }
 
 /** erp_code-l8_item_category-heat_no-heat_seq; null until the row has a heat no and number. */
@@ -450,7 +447,6 @@ const JOINED_FIELDS = [
 const FILLED_FIELDS = [
   "sum_of_physical_stock",
   "stock_as_per_erp",
-  "rate_unit",
   "purchase_in_26_27",
   "dispatched_in_26_27",
   "order_in_hand_qty",
@@ -478,7 +474,7 @@ export function mergeRows(
   if (available !== null) {
     changes.available_qty = available;
     changes.item_wise_value = computeItemWiseValue(
-      blank(target.rate_unit) ? source.rate_unit : target.rate_unit,
+      blank(target.cost) ? source.cost : target.cost,
       available,
     );
   }

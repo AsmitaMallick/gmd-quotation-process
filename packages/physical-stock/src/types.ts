@@ -17,7 +17,6 @@ export interface PhysicalStockRow {
   remarks: string | null;
   sum_of_physical_stock: string | null;
   stock_as_per_erp: string | null;
-  rate_unit: string | null;
   item_wise_value: string | null;
   moving_within_3_months: string | null;
   order_ag_approval_recvd: string | null;
