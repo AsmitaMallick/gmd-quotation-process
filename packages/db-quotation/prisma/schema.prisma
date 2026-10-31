@@ -1208,7 +1208,6 @@ model LedgerFollowUp {
   creditDays      Int?
   clientType      String?
   udyamOnInvoice  String?
-  stage           Int?
   nextActionDate  DateTime?
   samadhaanNo     String?
   samadhaanStatus String?
