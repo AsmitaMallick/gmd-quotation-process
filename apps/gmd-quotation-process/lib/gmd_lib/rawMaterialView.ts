@@ -213,6 +213,15 @@ export interface CardStats {
   imported: { count: number; sum: number };
   major: { count: number; sum: number };
   minor: { count: number; sum: number };
+  /**
+   * Everything the current filters leave on screen. Not `indian + imported`:
+   * a row whose INDIAN/IMPORTED cell is blank or says something else counts in
+   * neither of those, so adding them up understates the stock on hand.
+   *
+   * Unlike the other cards this one excludes no toggle, because it is not one —
+   * it answers "what is the stock I am looking at worth".
+   */
+  total: { count: number; sum: number };
 }
 
 /** Stock value (available stock x cost) per sidebar card, cascading on the other toggle. */
@@ -227,6 +236,7 @@ export function computeCardStats(
     imported: { count: 0, sum: 0 },
     major: { count: 0, sum: 0 },
     minor: { count: 0, sum: 0 },
+    total: { count: 0, sum: 0 },
   };
   const stockValue = (row: unknown[]): number | null => {
     const stockStr = String(row[12] ?? "").trim();
@@ -276,6 +286,16 @@ export function computeCardStats(
       stats.minor.sum += value;
     }
   }
+
+  // Grand total: both toggles applied, nothing excluded.
+  for (const row of sidebarBaseRows) {
+    if (!matchesSidebarNew(row, indianImported, majorFilter, headers)) continue;
+    const value = stockValue(row);
+    if (value === null) continue;
+    stats.total.count++;
+    stats.total.sum += value;
+  }
+
   return stats;
 }
 

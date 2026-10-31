@@ -1165,6 +1165,21 @@ export default function Home() {
                 STOCK VALUE
               </span>
 
+              {/* Not a toggle: the total of whatever the current filters leave
+                  on screen, so it moves with them instead of filtering again. */}
+              <div className="w-full bg-white/10 border border-white/25 rounded-lg p-3">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-white/60">
+                  Total
+                </span>
+                <span className="block text-xl font-bold text-white dark:text-foreground mt-1">
+                  {fmt(cardStats.total.sum)}
+                </span>
+                <span className="block text-[10px] font-medium text-white/50 mt-0.5">
+                  {cardStats.total.count} item
+                  {cardStats.total.count === 1 ? "" : "s"}
+                </span>
+              </div>
+
               <button
                 type="button"
                 onClick={() =>
