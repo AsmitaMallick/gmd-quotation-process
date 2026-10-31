@@ -1190,6 +1190,29 @@ model CreditorAdvance {
   @@index([accCode])
 }
 
+/// Collections / payment follow-up, shared by both ledgers. vrNo "" = party-level row (not null: Postgres unique indexes treat nulls as distinct).
+model LedgerFollowUp {
+  id             String    @id @default(cuid())
+  ledger         String
+  accCode        String
+  vrNo           String    @default("")
+  owner          String?
+  contactName    String?
+  contactPhone   String?
+  contactEmail   String?
+  lastFollowUp   DateTime?
+  promisedDate   DateTime?
+  promisedAmount Decimal?  @db.Decimal(18, 2)
+  status         String?
+  remarks        String?
+  updatedById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([ledger, accCode, vrNo])
+  @@index([ledger, accCode])
+}
+
 // One row per price change from a supplier price upload (valve rate master).
 model SupplierRateHistory {
   id          String    @id @default(cuid())

@@ -1,4 +1,5 @@
 /** Pure joins/helpers for the Debtors dashboard: bill info, BG exposure, follow-ups, CSV. */
+import { followUpKey } from "./ledgerFollowUp";
 
 export type BillInfo = {
   orderNo: string | null; // SALE BILL ORDER_VRNO
@@ -10,7 +11,17 @@ export type BillInfo = {
   driveLink: string | null;
 };
 export type BgRow = { beneficiaryName: string | null; bgAmt: number | null; cancelledStatus: string | null };
-export type FollowUp = { owner: string | null; lastFollowUp: string | null; promisedDate: string | null; promisedAmount: string | null; status: string | null };
+export type FollowUp = {
+  owner: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  lastFollowUp: string | null; // yyyy-mm-dd
+  promisedDate: string | null; // yyyy-mm-dd
+  promisedAmount: string | null;
+  status: string | null;
+  remarks: string | null;
+};
 
 type SaleBillIn = { vrNo: string; orderVrNo: string | null; partyRefNo: string | null; itemCode: string | null };
 type SaleRegIn = { invoiceNo: string; itemName: string | null; orderCopy: string | null; invoice: string | null; inspectionReport: string | null; driveLink: string | null };
@@ -56,32 +67,7 @@ export function bgExposureByName(bgs: BgRow[]): Map<string, number> {
 }
 export const bgFor = (m: Map<string, number>, partyName: string) => m.get(key(partyName)) ?? 0;
 
-/**
- * Follow-up tabs (read only if present). Expected headers, matched after normalisation, missing ones stay blank:
- * OS_STAFF_ALLOC: ACC_CODE, OWNER.  OS_FOLLOWUP_LOG: ACC_CODE, FOLLOWUP_DATE, PROMISED_DATE, PROMISED_AMOUNT, STATUS (later rows win).
- */
-export function buildFollowUps(
-  alloc: { headers: string[]; rows: string[][] } | null,
-  log: { headers: string[]; rows: string[][] } | null,
-): Record<string, FollowUp> {
-  const out: Record<string, FollowUp> = {};
-  const norm = (h: string) => key(h).replace(/_/g, " ");
-  const col = (t: { headers: string[] }, name: string) => t.headers.map(norm).indexOf(norm(name));
-  const val = (r: string[], i: number) => (i < 0 ? null : (r[i] ?? "").trim() || null);
-  const slot = (code: string) => (out[key(code)] ??= { owner: null, lastFollowUp: null, promisedDate: null, promisedAmount: null, status: null });
-  if (alloc) {
-    const c = col(alloc, "ACC_CODE"), o = col(alloc, "OWNER");
-    if (c >= 0) for (const r of alloc.rows) if (val(r, c)) slot(r[c]).owner = val(r, o);
-  }
-  if (log) {
-    const c = col(log, "ACC_CODE"), d = col(log, "FOLLOWUP_DATE"), pd = col(log, "PROMISED_DATE"), pa = col(log, "PROMISED_AMOUNT"), s = col(log, "STATUS");
-    if (c >= 0)
-      for (const r of log.rows)
-        if (val(r, c)) Object.assign(slot(r[c]), { lastFollowUp: val(r, d), promisedDate: val(r, pd), promisedAmount: val(r, pa), status: val(r, s) });
-  }
-  return out;
-}
-export const followUpFor = (m: Record<string, FollowUp>, accCode: string) => m[key(accCode)];
+export const followUpFor = (m: Record<string, FollowUp>, accCode: string, vrNo?: string | null) => m[followUpKey(accCode, vrNo)];
 
 export function toCsv(header: string[], rows: (string | number | null | undefined)[][]): string {
   const q = (v: string | number | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;

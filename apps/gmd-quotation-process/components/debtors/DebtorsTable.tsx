@@ -2,6 +2,8 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { User } from "lucide-react";
+import { toast } from "sonner";
+import { saveLedgerFollowUpAction } from "@/app/actions/ledgerFollowUp";
 import DebouncedSearchInput from "@/components/table/DebouncedSearchInput";
 import { squish } from "@gmd/dashboard/lib/squish";
 import type { DebtorRow, DebtorTotals } from "@/lib/debtors";
@@ -10,6 +12,19 @@ import type { Bucket } from "@/lib/debtorsAgeing";
 import { formatIndianNumber } from "@/lib/formatCurrency";
 import { bgExposureByName, bgFor, billInfoFor, downloadCsv, followUpFor, toCsv } from "@/lib/debtorJoins";
 import type { BgRow, BillInfo, FollowUp } from "@/lib/debtorJoins";
+
+const EMPTY_FOLLOW_UP: FollowUp = { owner: null, contactName: null, contactPhone: null, contactEmail: null, lastFollowUp: null, promisedDate: null, promisedAmount: null, status: null, remarks: null };
+const FOLLOW_UP_COLS: { field: keyof FollowUp; label: string; type?: "date" }[] = [
+  { field: "owner", label: "Accounts owner" },
+  { field: "contactName", label: "Contact name" },
+  { field: "contactPhone", label: "Contact phone" },
+  { field: "contactEmail", label: "Contact email" },
+  { field: "lastFollowUp", label: "Last follow-up", type: "date" },
+  { field: "promisedDate", label: "Promised date", type: "date" },
+  { field: "promisedAmount", label: "Promised amount" },
+  { field: "status", label: "Follow-up status" },
+  { field: "remarks", label: "Remarks" },
+];
 
 interface DebtorsTableProps {
   rows: DebtorRow[];
@@ -67,6 +82,24 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
   const [bucket, setBucket] = useState<Bucket | null>(null);
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [follow, setFollow] = useState(followUps);
+
+  // Optimistic: show the edit now, put the old value back and toast if the save fails.
+  const saveFollowUp = async (accCode: string, field: keyof FollowUp, value: string) => {
+    const prev = follow[accCode];
+    const next = { ...EMPTY_FOLLOW_UP, ...prev, [field]: value.trim() || null };
+    setFollow((m) => ({ ...m, [accCode]: next }));
+    const res = await saveLedgerFollowUpAction({ ledger: "debtor", accCode, ...next });
+    if (!res.success) {
+      setFollow((m) => {
+        const rest = { ...m };
+        if (prev) rest[accCode] = prev;
+        else delete rest[accCode];
+        return rest;
+      });
+      toast.error(res.error ?? "Could not save the follow-up.");
+    }
+  };
 
   const today = useMemo(() => new Date(), []);
   const summary = useMemo(() => summarise(rows, today), [rows, today]);
@@ -96,10 +129,10 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
     downloadCsv(
       "debtors_party_wise.csv",
       toCsv(
-        ["Party", "Total dues", "Overdue", ...BUCKETS, "Unadjusted credit", "Net", "BG exposure", "Accounts owner", "Last follow-up", "Promised date", "Promised amount", "Status"],
+        ["Party", "Total dues", "Overdue", ...BUCKETS, "Unadjusted credit", "Net", "BG exposure", ...FOLLOW_UP_COLS.map((c) => c.label)],
         parties.map((p) => {
-          const f = followUpFor(followUps, p.accCode);
-          return [p.accName, p.totalDues, p.overdue, ...BUCKETS.map((b) => p.buckets[b]), p.credits, p.net, bgFor(bgMap, p.accName), f?.owner, f?.lastFollowUp, f?.promisedDate, f?.promisedAmount, f?.status];
+          const f = followUpFor(follow, p.accCode);
+          return [p.accName, p.totalDues, p.overdue, ...BUCKETS.map((b) => p.buckets[b]), p.credits, p.net, bgFor(bgMap, p.accName), ...FOLLOW_UP_COLS.map((c) => f?.[c.field])];
         }),
       ),
     );
@@ -125,7 +158,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
     );
   }
 
-  const span = BUCKETS.length + 9;
+  const span = BUCKETS.length + 15;
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -181,8 +214,8 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
                 <th className={`${TH} text-right`}>Unadjusted credit</th>
                 <th className={`${TH} text-right`}>Net (dues minus credits)</th>
                 <th className={`${TH} text-right`}>BG exposure (open BGs)</th>
-                {["Accounts owner", "Last follow-up", "Promised date", "Promised amount", "Follow-up status"].map((h) => (
-                  <th key={h} className={TH}>{h}</th>
+                {FOLLOW_UP_COLS.map((c) => (
+                  <th key={c.field} className={TH}>{c.label}</th>
                 ))}
               </tr>
             </thead>
@@ -201,12 +234,21 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
                     <td className={TD}>{p.credits ? formatLakh(p.credits) : "-"}</td>
                     <td className={TD}>{formatLakh(p.net)}</td>
                     <td className={TD}>{bgFor(bgMap, p.accName) ? formatLakh(bgFor(bgMap, p.accName)) : "-"}</td>
-                    {(() => {
-                      const f = followUpFor(followUps, p.accCode);
-                      return [f?.owner, f?.lastFollowUp, f?.promisedDate, f?.promisedAmount, f?.status].map((v, i) => (
-                        <td key={i} className="border-r border-border px-3 py-2">{v ?? ""}</td>
-                      ));
-                    })()}
+                    {FOLLOW_UP_COLS.map((c) => {
+                      const v = follow[p.accCode]?.[c.field] ?? "";
+                      return (
+                        <td key={c.field} className="border-r border-border px-1 py-1" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            key={v}
+                            type={c.type ?? "text"}
+                            defaultValue={v}
+                            aria-label={c.label}
+                            className="w-full min-w-[110px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-border focus:border-primary"
+                            onBlur={(e) => e.target.value.trim() !== v && saveFollowUp(p.accCode, c.field, e.target.value)}
+                          />
+                        </td>
+                      );
+                    })}
                   </tr>
                   {open === p.accCode && (
                     <tr>

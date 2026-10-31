@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { bgExposureByName, bgFor, billInfoFor, buildBillInfo, buildFollowUps, toCsv } from '../lib/debtorJoins.js'
+import { bgExposureByName, bgFor, billInfoFor, buildBillInfo, toCsv } from '../lib/debtorJoins.js'
 
 test('bill info joins bill + register on invoice no', () => {
   const m = buildBillInfo(
@@ -21,14 +21,6 @@ test('BG exposure counts only open BGs, name matched loosely on case/spaces', ()
   ])
   assert.equal(bgFor(m, 'ncc limited'), 100)
   assert.equal(bgFor(m, 'other'), 0)
-})
-
-test('follow-ups tolerate missing tabs and columns', () => {
-  assert.deepEqual(buildFollowUps(null, null), {})
-  const f = buildFollowUps({ headers: ['ACC_CODE', 'OWNER'], rows: [['A1', 'Ravi']] }, { headers: ['ACC_CODE', 'STATUS'], rows: [['A1', 'Promised']] })
-  assert.equal(f['A1'].owner, 'Ravi')
-  assert.equal(f['A1'].status, 'Promised')
-  assert.equal(f['A1'].promisedDate, null)
 })
 
 test('csv escapes quotes', () => {
