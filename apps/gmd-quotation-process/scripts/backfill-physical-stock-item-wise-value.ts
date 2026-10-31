@@ -4,7 +4,7 @@ import { computeItemWiseValue } from "@gmd/physical-stock/columns";
 
 /**
  * One-time backfill: set `PhysicalStock.item_wise_value` to
- * `rate/unit * available qty` (2 decimals) on the stock DB table.
+ * `cost * available qty` (2 decimals) on the stock DB table.
  *
  * Missing operands count as 0, so every row gets a value. Only changed rows are
  * written; safe to re-run.
@@ -24,7 +24,7 @@ async function main() {
     select: {
       id: true,
       erp_code: true,
-      rate_unit: true,
+      cost: true,
       available_qty: true,
       item_wise_value: true,
     },
@@ -34,21 +34,21 @@ async function main() {
   const writes: { id: string; item_wise_value: string }[] = [];
   const preview: {
     erp_code: string;
-    rate_unit: string;
+    cost: string;
     available_qty: string;
     from: string;
     to: string;
   }[] = [];
 
   for (const row of rows) {
-    const next = computeItemWiseValue(row.rate_unit, row.available_qty);
+    const next = computeItemWiseValue(row.cost, row.available_qty);
     if (next === row.item_wise_value) continue;
     changed++;
     writes.push({ id: row.id, item_wise_value: next });
     if (preview.length < 25) {
       preview.push({
         erp_code: row.erp_code ?? "",
-        rate_unit: row.rate_unit ?? "",
+        cost: row.cost ?? "",
         available_qty: row.available_qty ?? "",
         from: row.item_wise_value ?? "",
         to: next,

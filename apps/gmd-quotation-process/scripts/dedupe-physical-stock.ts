@@ -45,7 +45,7 @@ async function main() {
     const available = computeAvailableQty(received, dispatch);
     if (available !== null) {
       data.available_qty = available;
-      data.item_wise_value = computeItemWiseValue(keep.rate_unit, available);
+      data.item_wise_value = computeItemWiseValue(keep.cost, available);
     }
 
     console.log(
