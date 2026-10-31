@@ -912,6 +912,12 @@ interface GMDUpdateTableProps {
   categoryOptions?: Record<string, string[]>;
   uniqueKeyColumns?: string[];
   fixedDropdownOptions?: Record<string, string[]>;
+  /**
+   * Narrows a cell dropdown to the values that fit the rest of that row (the
+   * L1-L8 cascade). Returns undefined for a header it does not cascade, and
+   * never an empty list, so the editor is never left with nothing to pick.
+   */
+  cascadeOptionsFor?: (row: unknown[], header: string) => string[] | undefined;
   onCellUpdate?: (id: string, colIndex: number, value: string) => Promise<void>;
   /** Fallback save when onCellUpdate is not given: persist one DB field. */
   onFieldUpdate?: (id: string, field: string, value: string | null) => Promise<unknown>;
@@ -1202,6 +1208,7 @@ export default function GMDUpdateTable({
   categoryOptions,
   uniqueKeyColumns,
   fixedDropdownOptions,
+  cascadeOptionsFor,
   onCellUpdate,
   onFieldUpdate,
   onUsdCostUpdate,
@@ -2413,6 +2420,7 @@ castingRateInputs,
       ) {
         const options = (
           fixedDropdownOptions?.[header] ||
+          cascadeOptionsFor?.(row, header) ||
           categoryOptions?.[header] ||
           columnUniqueVals[header] ||
           []
