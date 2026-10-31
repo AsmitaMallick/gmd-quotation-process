@@ -32,6 +32,7 @@ export const NAV: NavEntry[] = [
     label: "More",
     items: [
       { label: "Debtors", href: "/debtors" },
+      { label: "Creditors", href: "/creditors" },
       { label: "Upload Image", href: "/upload-image" },
       { label: "Data Sources", href: "/data-sources" },
       { label: "GEM Bid & RA", href: "http://192.168.1.190:6012/", external: true },

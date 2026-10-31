@@ -69,3 +69,11 @@ export function toAmount(v: string | null | undefined): number | undefined {
 /** Text compare ignoring case; blank -> undefined (last). */
 export const textSort: SortFn<any, any> = (a, b, id) => // eslint-disable-line @typescript-eslint/no-explicit-any
   String(a.getValue(id)).localeCompare(String(b.getValue(id)), "en", { sensitivity: "base", numeric: true });
+
+export const DEFAULT_CREDITOR_PREFS: TablePrefs = {
+  sorting: [{ id: "overdue", desc: true }],
+  filters: {},
+  amountFormat: "lakh",
+};
+
+export const CREDITOR_PREFS_KEY = "creditors-table-prefs-v1";
