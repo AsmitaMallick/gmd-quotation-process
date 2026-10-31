@@ -78,6 +78,7 @@ export default function DebtorsPage() {
             billInfo={data?.billInfo ?? {}}
             bgs={data?.bgs ?? []}
             followUps={data?.followUps ?? {}}
+            legalCases={data?.legalCases ?? {}}
           />
         </div>
       </div>

@@ -1213,6 +1213,44 @@ model LedgerFollowUp {
   @@index([ledger, accCode])
 }
 
+// Legal status and doubtful-debt provision per party. Set by Accounts/Legal, never overwritten by the sheet sync.
+model PartyLegalCase {
+  id              String    @id @default(cuid())
+  ledger          String
+  accCode         String
+  status          String?
+  forum           String?
+  caseNo          String?
+  filingDate      DateTime?
+  nextHearingDate DateTime?
+  advocate        String?
+  claimAmount     Decimal?  @db.Decimal(18, 2)
+  interestClaimed Decimal?  @db.Decimal(18, 2)
+  provisionPct    Float?
+  provisionAmount Decimal?  @db.Decimal(18, 2)
+  documentLink    String?
+  lastUpdate      String?
+  updatedById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([ledger, accCode])
+  @@index([nextHearingDate])
+}
+
+// Who changed which legal field, and when. No FK: survives the case row (same as ItemChangeLog).
+model PartyLegalCaseLog {
+  id          String   @id @default(cuid())
+  caseId      String
+  field       String
+  oldValue    String?
+  newValue    String?
+  changedById String?
+  changedAt   DateTime @default(now())
+
+  @@index([caseId])
+}
+
 // One row per price change from a supplier price upload (valve rate master).
 model SupplierRateHistory {
   id          String    @id @default(cuid())

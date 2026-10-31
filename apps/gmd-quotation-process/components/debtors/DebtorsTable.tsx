@@ -5,6 +5,7 @@ import { User } from "lucide-react";
 import { createColumnHelper, createSortedRowModel, rowSortingFeature, tableFeatures, useTable } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { saveLedgerFollowUpAction } from "@/app/actions/ledgerFollowUp";
+import { saveLegalCaseAction } from "@/app/actions/partyLegalCase";
 import DebouncedSearchInput from "@/components/table/DebouncedSearchInput";
 import { squish } from "@gmd/dashboard/lib/squish";
 import type { DebtorRow, DebtorTotals } from "@/lib/debtors";
@@ -12,6 +13,8 @@ import { BUCKETS, bucketOf, daysOverdue, formatLakh, outstanding, summarise } fr
 import type { Bucket, PartyAgeing } from "@/lib/debtorsAgeing";
 import { DEBTOR_PREFS_KEY, DEFAULT_DEBTOR_PREFS, dateSort, loadPrefs, numericSort, savePrefs, textSort, toAmount, toTime } from "@/lib/tablePrefs";
 import type { TablePrefs } from "@/lib/tablePrefs";
+import { LEGAL_STATUSES, isUnderLitigation, resolveProvision, splitDues } from "@/lib/legalStatus";
+import type { LegalCaseView } from "@/lib/legalStatus";
 import { formatIndianNumber } from "@/lib/formatCurrency";
 import { bgExposureByName, bgFor, billInfoFor, downloadCsv, followUpFor, toCsv } from "@/lib/debtorJoins";
 import type { BgRow, BillInfo, FollowUp } from "@/lib/debtorJoins";
@@ -29,7 +32,23 @@ const FOLLOW_UP_COLS: { field: keyof FollowUp; label: string; type?: "date" }[] 
   { field: "remarks", label: "Remarks" },
 ];
 
-type PartyRow = PartyAgeing & { bg: number; follow: FollowUp };
+const EMPTY_LEGAL: LegalCaseView = { status: null, forum: null, caseNo: null, filingDate: null, nextHearingDate: null, advocate: null, claimAmount: null, interestClaimed: null, provisionPct: null, provisionAmount: null, documentLink: null, lastUpdate: null };
+const LEGAL_COLS: { field: keyof LegalCaseView; label: string; type?: "date" | "number" }[] = [
+  { field: "status", label: "Legal status" },
+  { field: "forum", label: "Forum" },
+  { field: "caseNo", label: "Case no." },
+  { field: "filingDate", label: "Filing date", type: "date" },
+  { field: "nextHearingDate", label: "Next hearing", type: "date" },
+  { field: "advocate", label: "Advocate" },
+  { field: "claimAmount", label: "Claim amount", type: "number" },
+  { field: "interestClaimed", label: "Interest claimed", type: "number" },
+  { field: "provisionPct", label: "Provision %", type: "number" },
+  { field: "provisionAmount", label: "Provision amount", type: "number" },
+  { field: "documentLink", label: "Document link" },
+  { field: "lastUpdate", label: "Legal last update" },
+];
+
+type PartyRow = PartyAgeing & { bg: number; follow: FollowUp; legal: LegalCaseView };
 
 // Sorting only: cells are still rendered by hand below, in this same column order.
 const features = tableFeatures({ rowSortingFeature, sortedRowModel: createSortedRowModel(), sortFns: { numeric: numericSort, date: dateSort, text: textSort } });
@@ -52,6 +71,13 @@ const COLUMNS = col.columns([
         ? col.accessor((p) => toAmount(p.follow[c.field]), { id: c.field, header: c.label, sortFn: "numeric", sortUndefined: "last" })
         : textCol(c.field, c.label, (p) => p.follow[c.field]),
   ),
+  ...LEGAL_COLS.map((c) =>
+    c.type === "date"
+      ? col.accessor((p) => toTime(p.legal[c.field]), { id: c.field, header: c.label, sortFn: "date", sortUndefined: "last" })
+      : c.type === "number"
+        ? col.accessor((p) => toAmount(p.legal[c.field]), { id: c.field, header: c.label, sortFn: "numeric", sortUndefined: "last" })
+        : textCol(c.field, c.label, (p) => p.legal[c.field]),
+  ),
 ]);
 const RIGHT_ALIGNED = new Set<string>(["totalDues", "overdue", ...BUCKETS, "credits", "net", "bg"]);
 
@@ -61,6 +87,7 @@ interface DebtorsTableProps {
   billInfo: Record<string, BillInfo>;
   bgs: BgRow[];
   followUps: Record<string, FollowUp>;
+  legalCases: Record<string, LegalCaseView>;
 }
 
 function formatDate(value: string | null): string {
@@ -92,6 +119,36 @@ const DOC_LINKS = [
   ["driveLink", "Drive"],
 ] as const;
 
+function LegalCells({ p, onSave }: { p: PartyRow; onSave: (accCode: string, field: keyof LegalCaseView, value: string) => void }) {
+  return (
+    <>
+      {LEGAL_COLS.map((c) => {
+        const v = p.legal[c.field] ?? "";
+        return (
+          <td key={c.field} className="border-r border-border px-1 py-1" onClick={(e) => e.stopPropagation()}>
+            {c.field === "status" ? (
+              <select aria-label={c.label} value={v} className="w-full min-w-[150px] rounded border border-transparent bg-transparent px-2 py-1 text-sm hover:border-border" onChange={(e) => onSave(p.accCode, c.field, e.target.value)}>
+                <option value="">-</option>
+                {LEGAL_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            ) : (
+              <input
+                key={v}
+                type={c.type === "date" ? "date" : "text"}
+                inputMode={c.type === "number" ? "decimal" : undefined}
+                defaultValue={v}
+                aria-label={c.label}
+                className="w-full min-w-[120px] rounded border border-transparent bg-transparent px-2 py-1 text-sm hover:border-border focus:border-primary"
+                onBlur={(e) => e.target.value.trim() !== v && onSave(p.accCode, c.field, e.target.value)}
+              />
+            )}
+          </td>
+        );
+      })}
+    </>
+  );
+}
+
 function DocLinks({ info }: { info?: BillInfo }) {
   const links = DOC_LINKS.map(([k, label]) => [label, info?.[k]] as const).filter(([, v]) => v);
   if (links.length === 0) return <>-</>;
@@ -108,12 +165,13 @@ function DocLinks({ info }: { info?: BillInfo }) {
   );
 }
 
-export default function DebtorsTable({ rows, billInfo, bgs, followUps }: DebtorsTableProps) {
+export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCases }: DebtorsTableProps) {
   const [bucket, setBucket] = useState<Bucket | null>(null);
   const [prefs, setPrefs] = useState<TablePrefs>(DEFAULT_DEBTOR_PREFS);
   const [hydrated, setHydrated] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [follow, setFollow] = useState(followUps);
+  const [legal, setLegal] = useState(legalCases);
 
   // Read saved prefs after mount (not in the initial state) so server and client render the same first paint.
   useEffect(() => {
@@ -156,20 +214,46 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
     }
   };
 
+  const saveLegal = async (accCode: string, field: keyof LegalCaseView, value: string) => {
+    const prev = legal[accCode];
+    const next = { ...EMPTY_LEGAL, ...prev, [field]: value.trim() || null };
+    setLegal((m) => ({ ...m, [accCode]: next }));
+    const res = await saveLegalCaseAction({ ledger: "debtor", accCode, ...next });
+    if (!res.success) {
+      setLegal((m) => {
+        const rest = { ...m };
+        if (prev) rest[accCode] = prev;
+        else delete rest[accCode];
+        return rest;
+      });
+      toast.error(res.error ?? "Could not save the legal details.");
+    }
+  };
+
   const today = useMemo(() => new Date(), []);
   const summary = useMemo(() => summarise(rows, today), [rows, today]);
 
   const bgMap = useMemo(() => bgExposureByName(bgs), [bgs]);
+  const split = useMemo(() => splitDues(summary.parties, new Map(Object.entries(legal))), [summary, legal]);
 
   const owners = useMemo(() => [...new Set(Object.values(follow).map((f) => f.owner).filter((o): o is string => !!o))].sort(), [follow]);
 
   // shortcut: re-sorts as soon as an edited cell is saved (a row can jump after editing the sorted column), upgrade by freezing order while an input is focused
+  const withExtras = useMemo<PartyRow[]>(
+    () => summary.parties.map((p) => ({ ...p, bg: bgFor(bgMap, p.accName), follow: { ...EMPTY_FOLLOW_UP, ...followUpFor(follow, p.accCode) }, legal: { ...EMPTY_LEGAL, ...legal[p.accCode] } })),
+    [summary, bgMap, follow, legal],
+  );
+  // Parties under litigation leave the collection table (and so every reminder-style filter) and get their own section.
+  const litigating = useMemo(() => {
+    const needle = squish(search);
+    return withExtras.filter((p) => isUnderLitigation(p.legal.status) && (!needle || squish(`${p.accName} ${p.accCode}`).includes(needle)));
+  }, [withExtras, search]);
   const filtered = useMemo<PartyRow[]>(() => {
     const needle = squish(search);
     const startOfToday = new Date(today).setHours(0, 0, 0, 0);
-    return summary.parties
-      .map((p) => ({ ...p, bg: bgFor(bgMap, p.accName), follow: { ...EMPTY_FOLLOW_UP, ...followUpFor(follow, p.accCode) } }))
+    return withExtras
       .filter((p) => {
+        if (isUnderLitigation(p.legal.status)) return false;
         if (needle && !squish(`${p.accName} ${p.accCode}`).includes(needle)) return false;
         if (owner && p.follow.owner !== owner) return false;
         if (overdueOnly && p.overdue <= 0) return false;
@@ -179,7 +263,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
         if (bucket && p.buckets[bucket] <= 0) return false;
         return true;
       });
-  }, [summary, bgMap, follow, today, search, owner, overdueOnly, over45, broken, bucket]);
+  }, [withExtras, today, search, owner, overdueOnly, over45, broken, bucket]);
 
   const table = useTable({
     features,
@@ -206,9 +290,9 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
     downloadCsv(
       "debtors_party_wise.csv",
       toCsv(
-        ["Party", "Total dues", "Overdue", ...BUCKETS, "Unadjusted credit", "Net", "BG exposure", ...FOLLOW_UP_COLS.map((c) => c.label)],
+        ["Party", "Total dues", "Overdue", ...BUCKETS, "Unadjusted credit", "Net", "BG exposure", ...FOLLOW_UP_COLS.map((c) => c.label), ...LEGAL_COLS.map((c) => c.label)],
         parties.map((p) => {
-          return [p.accName, p.totalDues, p.overdue, ...BUCKETS.map((b) => p.buckets[b]), p.credits, p.net, p.bg, ...FOLLOW_UP_COLS.map((c) => p.follow[c.field])];
+          return [p.accName, p.totalDues, p.overdue, ...BUCKETS.map((b) => p.buckets[b]), p.credits, p.net, p.bg, ...FOLLOW_UP_COLS.map((c) => p.follow[c.field]), ...LEGAL_COLS.map((c) => p.legal[c.field])];
         }),
       ),
     );
@@ -234,7 +318,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
     );
   }
 
-  const span = BUCKETS.length + 15;
+  const span = BUCKETS.length + 15 + LEGAL_COLS.length;
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -243,6 +327,13 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
         <Tile label="Over 90 days" value={fmt(summary.over90)} danger />
         <Tile label={`Unadjusted credits / advances (net ${fmt(summary.net)})`} value={fmt(summary.credits)} />
         <Tile label="No. of parties" value={String(summary.parties.filter((p) => p.totalDues > 0).length)} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Tile label="Gross dues" value={fmt(split.gross)} />
+        <Tile label="Under litigation (after provision)" value={fmt(split.underLitigation)} danger />
+        <Tile label="Provision for doubtful debts" value={fmt(split.provision)} />
+        <Tile label="Net collectable" value={fmt(split.netCollectable)} />
       </div>
 
       <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
@@ -341,6 +432,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
                         </td>
                       );
                     })}
+                    <LegalCells p={p} onSave={saveLegal} />
                   </tr>
                   {open === p.accCode && (
                     <tr>
@@ -397,12 +489,48 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
                 {[sumOf((p) => p.totalDues), sumOf((p) => p.overdue), ...BUCKETS.map((b) => sumOf((p) => p.buckets[b])), sumOf((p) => p.credits), sumOf((p) => p.net), sumOf((p) => p.bg)].map((v, i) => (
                   <td key={i} className={`${TD} sticky bottom-0 border-t-2 bg-muted`}>{fmt(v)}</td>
                 ))}
-                <td colSpan={FOLLOW_UP_COLS.length} className="sticky bottom-0 border-t-2 border-border bg-muted" />
+                <td colSpan={FOLLOW_UP_COLS.length + LEGAL_COLS.length} className="sticky bottom-0 border-t-2 border-border bg-muted" />
               </tr>
             </tfoot>
           </table>
         </div>
       </div>
+
+      {litigating.length > 0 && (
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="flex items-center gap-3 border-b border-border px-4 py-2.5">
+            <h2 className="text-sm font-semibold text-foreground">Under litigation</h2>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">{litigating.length} parties</span>
+            <span className="text-xs text-muted-foreground">Excluded from reminders and the collectable total.</span>
+          </div>
+          {/* shortcut: this section is not sortable, upgrade by sharing the main table's column model */}
+          <div className="max-h-[420px] overflow-auto">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead>
+                <tr>
+                  {["Party", "Total dues", "Provision", "Carried after provision", ...LEGAL_COLS.map((c) => c.label)].map((h, i) => (
+                    <th key={h} className={`${TH} sticky top-0 z-20 border-b bg-muted ${i >= 1 && i <= 3 ? "text-right" : ""}`}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {litigating.map((p, i) => {
+                  const prov = resolveProvision(p.legal, p.totalDues);
+                  return (
+                    <tr key={p.accCode} className={i % 2 ? "bg-muted" : "bg-card"}>
+                      <td className="border-r border-border px-3 py-2 font-medium">{p.accName}</td>
+                      <td className={TD}>{fmt(p.totalDues)}</td>
+                      <td className={TD}>{prov ? fmt(prov) : "-"}</td>
+                      <td className={TD}>{fmt(p.totalDues - prov)}</td>
+                      <LegalCells p={p} onSave={saveLegal} />
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import { buildBillInfo } from "@/lib/debtorJoins";
 import { indexFollowUps } from "@/lib/ledgerFollowUp";
 import type { LedgerSide } from "@/lib/debtorsAgeing";
 import type { FollowUp } from "@/lib/debtorJoins";
+import { legalCaseToView } from "@/lib/legalStatus";
+import type { LegalCaseView } from "@/lib/legalStatus";
 
 /** DB is authoritative for follow-ups (no cache, so a fresh edit is never overwritten by a stale read). */
 export async function getFollowUps(ledger: LedgerSide): Promise<Record<string, FollowUp>> {
@@ -21,6 +23,12 @@ export async function getFollowUps(ledger: LedgerSide): Promise<Record<string, F
   );
 }
 
+/** Legal cases keyed by accCode. */
+export async function getLegalCases(ledger: LedgerSide): Promise<Record<string, LegalCaseView>> {
+  const rows = await prisma.partyLegalCase.findMany({ where: { ledger } });
+  return Object.fromEntries(rows.map((r) => [r.accCode, legalCaseToView(r)]));
+}
+
 function toNum(value: { toString(): string } | null): number | null {
   if (value === null || value === undefined) return null;
   const n = Number(value.toString());
@@ -32,11 +40,12 @@ function toIso(value: Date | null): string | null {
 }
 
 export async function getDebtors(): Promise<DebtorsResult> {
-  const [bills, regs, bgRecords, followUps] = await Promise.all([
+  const [bills, regs, bgRecords, followUps, legalCases] = await Promise.all([
     prisma.saleBill.findMany({ select: { vrNo: true, orderVrNo: true, partyRefNo: true, itemCode: true } }),
     prisma.saleRegister.findMany({ select: { invoiceNo: true, itemName: true, orderCopy: true, invoice: true, inspectionReport: true, driveLink: true } }),
     prisma.bankGuarantee.findMany({ select: { beneficiaryName: true, bgAmt: true, cancelledStatus: true } }),
     getFollowUps("debtor"),
+    getLegalCases("debtor"),
   ]);
 
   const records = await prisma.debtor.findMany({
@@ -91,5 +100,6 @@ export async function getDebtors(): Promise<DebtorsResult> {
     billInfo: buildBillInfo(bills, regs),
     bgs: bgRecords.map((b) => ({ ...b, bgAmt: toNum(b.bgAmt) })),
     followUps,
+    legalCases,
   };
 }
