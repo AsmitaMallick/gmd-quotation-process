@@ -1,14 +1,17 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { User } from "lucide-react";
+import { createColumnHelper, createSortedRowModel, rowSortingFeature, tableFeatures, useTable } from "@tanstack/react-table";
 import { toast } from "sonner";
 import { saveLedgerFollowUpAction } from "@/app/actions/ledgerFollowUp";
 import DebouncedSearchInput from "@/components/table/DebouncedSearchInput";
 import { squish } from "@gmd/dashboard/lib/squish";
 import type { DebtorRow, DebtorTotals } from "@/lib/debtors";
 import { BUCKETS, bucketOf, daysOverdue, formatLakh, outstanding, summarise } from "@/lib/debtorsAgeing";
-import type { Bucket } from "@/lib/debtorsAgeing";
+import type { Bucket, PartyAgeing } from "@/lib/debtorsAgeing";
+import { DEBTOR_PREFS_KEY, DEFAULT_DEBTOR_PREFS, dateSort, loadPrefs, numericSort, savePrefs, textSort, toAmount, toTime } from "@/lib/tablePrefs";
+import type { TablePrefs } from "@/lib/tablePrefs";
 import { formatIndianNumber } from "@/lib/formatCurrency";
 import { bgExposureByName, bgFor, billInfoFor, downloadCsv, followUpFor, toCsv } from "@/lib/debtorJoins";
 import type { BgRow, BillInfo, FollowUp } from "@/lib/debtorJoins";
@@ -26,6 +29,32 @@ const FOLLOW_UP_COLS: { field: keyof FollowUp; label: string; type?: "date" }[] 
   { field: "remarks", label: "Remarks" },
 ];
 
+type PartyRow = PartyAgeing & { bg: number; follow: FollowUp };
+
+// Sorting only: cells are still rendered by hand below, in this same column order.
+const features = tableFeatures({ rowSortingFeature, sortedRowModel: createSortedRowModel(), sortFns: { numeric: numericSort, date: dateSort, text: textSort } });
+const col = createColumnHelper<typeof features, PartyRow>();
+const amount = (id: string, header: string, get: (p: PartyRow) => number) => col.accessor(get, { id, header, sortFn: "numeric" });
+const textCol = (id: string, header: string, get: (p: PartyRow) => string | null | undefined) =>
+  col.accessor((p) => get(p) || undefined, { id, header, sortFn: "text", sortUndefined: "last" });
+const COLUMNS = col.columns([
+  textCol("party", "Party", (p) => p.accName),
+  amount("totalDues", "Total dues", (p) => p.totalDues),
+  amount("overdue", "Overdue", (p) => p.overdue),
+  ...BUCKETS.map((b) => amount(b, b === "Not due" ? b : `${b} days`, (p) => p.buckets[b])),
+  amount("credits", "Unadjusted credit", (p) => p.credits),
+  amount("net", "Net (dues minus credits)", (p) => p.net),
+  amount("bg", "BG exposure (open BGs)", (p) => p.bg),
+  ...FOLLOW_UP_COLS.map((c) =>
+    c.type === "date"
+      ? col.accessor((p) => toTime(p.follow[c.field]), { id: c.field, header: c.label, sortFn: "date", sortUndefined: "last" })
+      : c.field === "promisedAmount"
+        ? col.accessor((p) => toAmount(p.follow[c.field]), { id: c.field, header: c.label, sortFn: "numeric", sortUndefined: "last" })
+        : textCol(c.field, c.label, (p) => p.follow[c.field]),
+  ),
+]);
+const RIGHT_ALIGNED = new Set<string>(["totalDues", "overdue", ...BUCKETS, "credits", "net", "bg"]);
+
 interface DebtorsTableProps {
   rows: DebtorRow[];
   totals: DebtorTotals;
@@ -41,15 +70,17 @@ function formatDate(value: string | null): string {
   return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-const TH = "border-r border-border px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground whitespace-normal break-words align-bottom";
+const TH = "border-r border-border px-3 py-2.5 text-[13px] font-semibold text-foreground whitespace-normal break-words align-bottom";
 const TD = "border-r border-border px-3 py-2 text-right tabular-nums";
-const isRed = (b: Bucket) => b === "91-180" || b === "180+";
+// shortcut: buckets are 31-60 / 61+, not split at 45, so amber covers 31-60 and red starts at 61, upgrade when the buckets are re-cut at 45
+const bucketTone = (b: Bucket) => (b === "31-60" ? "text-amber-700 dark:text-amber-400" : b === "61-90" || b === "91-180" || b === "180+" ? "text-red-700 dark:text-red-400" : "");
+const STICKY_PARTY = "sticky left-0 z-10 bg-inherit";
 
 function Tile({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
   return (
     <div className="rounded-lg border border-border bg-card px-4 py-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-xl font-bold tabular-nums ${danger ? "text-red-600" : "text-foreground"}`}>{value}</div>
+      <div className="text-xs font-semibold text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${danger ? "text-red-700 dark:text-red-400" : "text-foreground"}`}>{value}</div>
     </div>
   );
 }
@@ -78,11 +109,35 @@ function DocLinks({ info }: { info?: BillInfo }) {
 }
 
 export default function DebtorsTable({ rows, billInfo, bgs, followUps }: DebtorsTableProps) {
-  const [search, setSearch] = useState("");
   const [bucket, setBucket] = useState<Bucket | null>(null);
-  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [prefs, setPrefs] = useState<TablePrefs>(DEFAULT_DEBTOR_PREFS);
+  const [hydrated, setHydrated] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [follow, setFollow] = useState(followUps);
+
+  // Read saved prefs after mount (not in the initial state) so server and client render the same first paint.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPrefs(loadPrefs(DEBTOR_PREFS_KEY));
+    setHydrated(true);
+  }, []);
+  useEffect(() => {
+    if (hydrated) savePrefs(DEBTOR_PREFS_KEY, prefs);
+  }, [hydrated, prefs]);
+
+  const search = prefs.filters.search ?? "";
+  const owner = prefs.filters.owner ?? "";
+  const overdueOnly = !!prefs.filters.overdueOnly;
+  const over45 = !!prefs.filters.over45;
+  const broken = !!prefs.filters.broken;
+  const setFilter = (k: string, v: string) =>
+    setPrefs((p) => {
+      const filters = { ...p.filters };
+      if (v) filters[k] = v;
+      else delete filters[k];
+      return { ...p, filters };
+    });
+  const fmt = prefs.amountFormat === "lakh" ? formatLakh : (n: number) => `${n < 0 ? "-" : ""}₹${formatIndianNumber(Math.abs(n))}`;
 
   // Optimistic: show the edit now, put the old value back and toast if the save fails.
   const saveFollowUp = async (accCode: string, field: keyof FollowUp, value: string) => {
@@ -106,15 +161,36 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
 
   const bgMap = useMemo(() => bgExposureByName(bgs), [bgs]);
 
-  const parties = useMemo(() => {
+  const owners = useMemo(() => [...new Set(Object.values(follow).map((f) => f.owner).filter((o): o is string => !!o))].sort(), [follow]);
+
+  // shortcut: re-sorts as soon as an edited cell is saved (a row can jump after editing the sorted column), upgrade by freezing order while an input is focused
+  const filtered = useMemo<PartyRow[]>(() => {
     const needle = squish(search);
-    return summary.parties.filter((p) => {
-      if (needle && !squish(`${p.accName} ${p.accCode}`).includes(needle)) return false;
-      if (overdueOnly && p.overdue <= 0) return false;
-      if (bucket && p.buckets[bucket] <= 0) return false;
-      return true;
-    });
-  }, [summary, search, overdueOnly, bucket]);
+    const startOfToday = new Date(today).setHours(0, 0, 0, 0);
+    return summary.parties
+      .map((p) => ({ ...p, bg: bgFor(bgMap, p.accName), follow: { ...EMPTY_FOLLOW_UP, ...followUpFor(follow, p.accCode) } }))
+      .filter((p) => {
+        if (needle && !squish(`${p.accName} ${p.accCode}`).includes(needle)) return false;
+        if (owner && p.follow.owner !== owner) return false;
+        if (overdueOnly && p.overdue <= 0) return false;
+        // shortcut: "past 45 days" is approximated by the 61+ buckets, upgrade with the 45-day bucket cut
+        if (over45 && p.buckets["61-90"] + p.buckets["91-180"] + p.buckets["180+"] <= 0) return false;
+        if (broken && !((toTime(p.follow.promisedDate) ?? Infinity) < startOfToday && p.overdue > 0)) return false;
+        if (bucket && p.buckets[bucket] <= 0) return false;
+        return true;
+      });
+  }, [summary, bgMap, follow, today, search, owner, overdueOnly, over45, broken, bucket]);
+
+  const table = useTable({
+    features,
+    columns: COLUMNS,
+    data: filtered,
+    state: { sorting: prefs.sorting },
+    onSortingChange: (u) => setPrefs((p) => ({ ...p, sorting: typeof u === "function" ? u(p.sorting) : u })),
+  });
+  const sortedRows = table.getRowModel().rows;
+  const parties = useMemo(() => sortedRows.map((r) => r.original), [sortedRows]);
+  const sumOf = (get: (p: PartyRow) => number) => parties.reduce((t, p) => t + get(p), 0);
 
   const bills = useMemo(() => {
     if (!open) return [];
@@ -125,14 +201,14 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
       .sort((a, b) => (b.days ?? -1e9) - (a.days ?? -1e9));
   }, [rows, open, bucket, today]);
 
+  // exports exactly what is on screen: `parties` is already filtered and in the current sort order
   const exportParties = () =>
     downloadCsv(
       "debtors_party_wise.csv",
       toCsv(
         ["Party", "Total dues", "Overdue", ...BUCKETS, "Unadjusted credit", "Net", "BG exposure", ...FOLLOW_UP_COLS.map((c) => c.label)],
         parties.map((p) => {
-          const f = followUpFor(follow, p.accCode);
-          return [p.accName, p.totalDues, p.overdue, ...BUCKETS.map((b) => p.buckets[b]), p.credits, p.net, bgFor(bgMap, p.accName), ...FOLLOW_UP_COLS.map((c) => f?.[c.field])];
+          return [p.accName, p.totalDues, p.overdue, ...BUCKETS.map((b) => p.buckets[b]), p.credits, p.net, p.bg, ...FOLLOW_UP_COLS.map((c) => p.follow[c.field])];
         }),
       ),
     );
@@ -162,10 +238,10 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-        <Tile label="Total dues" value={formatLakh(summary.totalDues)} />
-        <Tile label="Overdue" value={formatLakh(summary.overdue)} />
-        <Tile label="Over 90 days" value={formatLakh(summary.over90)} danger />
-        <Tile label={`Unadjusted credits / advances (net ${formatLakh(summary.net)})`} value={formatLakh(summary.credits)} />
+        <Tile label="Total dues" value={fmt(summary.totalDues)} />
+        <Tile label="Overdue" value={fmt(summary.overdue)} />
+        <Tile label="Over 90 days" value={fmt(summary.over90)} danger />
+        <Tile label={`Unadjusted credits / advances (net ${fmt(summary.net)})`} value={fmt(summary.credits)} />
         <Tile label="No. of parties" value={String(summary.parties.filter((p) => p.totalDues > 0).length)} />
       </div>
 
@@ -177,8 +253,8 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
             onClick={() => setBucket(bucket === b ? null : b)}
             className={`rounded-lg border px-3 py-2 text-left ${bucket === b ? "border-primary bg-primary/10" : "border-border bg-card"}`}
           >
-            <div className="text-[11px] font-semibold uppercase text-muted-foreground">{b === "Not due" ? b : `${b} days`}</div>
-            <div className={`text-base font-bold tabular-nums ${isRed(b) ? "text-red-600" : ""}`}>{formatLakh(summary.buckets[b])}</div>
+            <div className="text-xs font-semibold text-muted-foreground">{b === "Not due" ? b : `${b} days`}</div>
+            <div className={`text-lg font-bold tabular-nums ${bucketTone(b)}`}>{fmt(summary.buckets[b])}</div>
           </button>
         ))}
       </div>
@@ -186,56 +262,72 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
       <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
           <h2 className="text-sm font-semibold text-foreground">Party-wise outstanding</h2>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{parties.length} parties</span>
-          <label className="flex items-center gap-1.5 text-xs text-foreground">
-            <input type="checkbox" checked={overdueOnly} onChange={(e) => setOverdueOnly(e.target.checked)} />
-            Overdue only
-          </label>
+          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">{parties.length} parties</span>
+          <select aria-label="Filter by owner" value={owner} onChange={(e) => setFilter("owner", e.target.value)} className="rounded border border-border bg-card px-2 py-1 text-sm">
+            <option value="">All owners</option>
+            {owners.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+          {([["overdueOnly", "Overdue only"], ["over45", "Past 45 days only"], ["broken", "Promise broken"]] as const).map(([k, label]) => (
+            <label key={k} className="flex items-center gap-1.5 text-sm text-foreground">
+              <input type="checkbox" checked={!!prefs.filters[k]} onChange={(e) => setFilter(k, e.target.checked ? "1" : "")} />
+              {label}
+            </label>
+          ))}
           {bucket && (
-            <button type="button" className="text-xs text-primary underline" onClick={() => setBucket(null)}>
+            <button type="button" className="text-sm text-primary underline" onClick={() => setBucket(null)}>
               Clear bucket: {bucket}
             </button>
           )}
-          <button type="button" className="rounded border border-border px-2 py-1 text-xs" onClick={exportParties}>Download CSV</button>
-          <div className="ml-auto w-72">
-            <DebouncedSearchInput value={search} onCommit={setSearch} placeholder="Search party name or code" />
+          <button type="button" className="rounded border border-border px-2 py-1 text-sm" onClick={() => setPrefs((p) => ({ ...p, amountFormat: p.amountFormat === "lakh" ? "full" : "lakh" }))}>
+            {prefs.amountFormat === "lakh" ? "₹ L" : "₹"}
+          </button>
+          <button type="button" className="rounded border border-border px-2 py-1 text-sm" onClick={exportParties}>Download CSV</button>
+          <div className="w-full sm:ml-auto sm:w-72">
+            <DebouncedSearchInput value={search} onCommit={(v) => setFilter("search", v)} placeholder="Search party name or code" />
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
-          <table className="w-full border-collapse text-left text-[13px]">
-            <thead className="sticky top-0 z-10 border-b border-border bg-muted/80 select-none">
-              <tr>
-                <th className={TH}>Party</th>
-                <th className={`${TH} text-right`}>Total dues</th>
-                <th className={`${TH} text-right`}>Overdue</th>
-                {BUCKETS.map((b) => (
-                  <th key={b} className={`${TH} text-right`}>{b === "Not due" ? b : `${b} days`}</th>
-                ))}
-                <th className={`${TH} text-right`}>Unadjusted credit</th>
-                <th className={`${TH} text-right`}>Net (dues minus credits)</th>
-                <th className={`${TH} text-right`}>BG exposure (open BGs)</th>
-                {FOLLOW_UP_COLS.map((c) => (
-                  <th key={c.field} className={TH}>{c.label}</th>
-                ))}
-              </tr>
+          <table className="w-full border-collapse text-left text-sm">
+            <thead className="select-none">
+              {table.getHeaderGroups().map((g) => (
+                <tr key={g.id}>
+                  {g.headers.map((h) => {
+                    const sorted = h.column.getIsSorted();
+                    const right = RIGHT_ALIGNED.has(h.column.id);
+                    const idx = prefs.sorting.length > 1 ? h.column.getSortIndex() + 1 : 0;
+                    return (
+                      <th
+                        key={h.id}
+                        aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : "none"}
+                        className={`${TH} sticky top-0 border-b bg-muted ${h.column.id === "party" ? "left-0 z-30 min-w-[160px]" : "z-20"} ${right ? "text-right" : ""}`}
+                      >
+                        <button type="button" title="Click to sort, shift-click to add a second sort" onClick={h.column.getToggleSortingHandler()} className="font-semibold hover:underline">
+                          <table.FlexRender header={h} />
+                          {sorted && <span className="ml-1">{sorted === "asc" ? "▲" : "▼"}{idx > 0 && <sup className="text-xs">{idx}</sup>}</span>}
+                        </button>
+                      </th>
+                    );
+                  })}
+                </tr>
+              ))}
             </thead>
             <tbody className="divide-y divide-border/60">
-              {parties.map((p) => (
+              {parties.map((p, i) => (
                 <Fragment key={p.accCode}>
-                  <tr className="cursor-pointer hover:bg-muted/40" onClick={() => setOpen(open === p.accCode ? null : p.accCode)}>
-                    <td className="border-r border-border px-3 py-2 font-medium">{open === p.accCode ? "▾" : "▸"} {p.accName}</td>
-                    <td className={TD}>{formatLakh(p.totalDues)}</td>
-                    <td className={TD}>{formatLakh(p.overdue)}</td>
+                  <tr className={`cursor-pointer hover:bg-accent ${i % 2 ? "bg-muted" : "bg-card"}`} onClick={() => setOpen(open === p.accCode ? null : p.accCode)}>
+                    <td className={`${STICKY_PARTY} border-r border-border px-3 py-2 font-medium`}>{open === p.accCode ? "▾" : "▸"} {p.accName}</td>
+                    <td className={TD}>{fmt(p.totalDues)}</td>
+                    <td className={TD}>{fmt(p.overdue)}</td>
                     {BUCKETS.map((b) => (
-                      <td key={b} className={`${TD} ${isRed(b) && p.buckets[b] > 0 ? "font-semibold text-red-600" : ""}`}>
-                        {p.buckets[b] ? formatLakh(p.buckets[b]) : "-"}
+                      <td key={b} className={`${TD} ${p.buckets[b] > 0 && bucketTone(b) ? `font-semibold ${bucketTone(b)}` : ""}`}>
+                        {p.buckets[b] ? fmt(p.buckets[b]) : "-"}
                       </td>
                     ))}
-                    <td className={TD}>{p.credits ? formatLakh(p.credits) : "-"}</td>
-                    <td className={TD}>{formatLakh(p.net)}</td>
-                    <td className={TD}>{bgFor(bgMap, p.accName) ? formatLakh(bgFor(bgMap, p.accName)) : "-"}</td>
+                    <td className={TD}>{p.credits ? fmt(p.credits) : "-"}</td>
+                    <td className={TD}>{fmt(p.net)}</td>
+                    <td className={TD}>{p.bg ? fmt(p.bg) : "-"}</td>
                     {FOLLOW_UP_COLS.map((c) => {
-                      const v = follow[p.accCode]?.[c.field] ?? "";
+                      const v = p.follow[c.field] ?? "";
                       return (
                         <td key={c.field} className="border-r border-border px-1 py-1" onClick={(e) => e.stopPropagation()}>
                           <input
@@ -243,7 +335,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
                             type={c.type ?? "text"}
                             defaultValue={v}
                             aria-label={c.label}
-                            className="w-full min-w-[110px] rounded border border-transparent bg-transparent px-2 py-1 hover:border-border focus:border-primary"
+                            className="w-full min-w-[120px] rounded border border-transparent bg-transparent px-2 py-1 text-sm hover:border-border focus:border-primary"
                             onBlur={(e) => e.target.value.trim() !== v && saveFollowUp(p.accCode, c.field, e.target.value)}
                           />
                         </td>
@@ -253,7 +345,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
                   {open === p.accCode && (
                     <tr>
                       <td colSpan={span} className="bg-muted/20 p-3">
-                        <table className="w-full border-collapse text-[12px]">
+                        <table className="w-full border-collapse text-[13px]">
                           <thead>
                             <tr>
                               {["Invoice no", "Date", "Order no", "PO ref", "Item", "Amount", "Allocated", "Balance", "Due date", "Days overdue"].map((h, i) => (
@@ -261,7 +353,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
                               ))}
                               <th className={TH} colSpan={2}>
                                 Documents{" "}
-                                <button type="button" className="ml-2 rounded border border-border px-2 py-1 text-[10px] normal-case" onClick={() => exportStatement(p.accName)}>Download CSV</button>
+                                <button type="button" className="ml-2 rounded border border-border px-2 py-1 text-xs font-normal" onClick={() => exportStatement(p.accName)}>Download CSV</button>
                               </th>
                             </tr>
                           </thead>
@@ -281,7 +373,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
                                   {formatIndianNumber(bal, 2)}{bal < 0 ? " (credit)" : ""}
                                 </td>
                                 <td className="px-3 py-1.5">{formatDate(r.dueDate)}</td>
-                                <td className={`${TD} ${days !== null && days > 90 ? "font-semibold text-red-600" : ""}`}>{days ?? "-"}</td>
+                                <td className={`${TD} ${days !== null && days > 45 ? "font-semibold text-red-700" : days !== null && days > 30 ? "font-semibold text-amber-700" : ""}`}>{days ?? "-"}</td>
                                 <td className="px-3 py-1.5" colSpan={2}><DocLinks info={info} /></td>
                               </tr>
                               );
@@ -299,6 +391,15 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps }: Debtors
                 </tr>
               )}
             </tbody>
+            <tfoot>
+              <tr className="font-bold">
+                <td className="sticky bottom-0 left-0 z-20 border-r border-t-2 border-border bg-muted px-3 py-2">Total ({parties.length} parties)</td>
+                {[sumOf((p) => p.totalDues), sumOf((p) => p.overdue), ...BUCKETS.map((b) => sumOf((p) => p.buckets[b])), sumOf((p) => p.credits), sumOf((p) => p.net), sumOf((p) => p.bg)].map((v, i) => (
+                  <td key={i} className={`${TD} sticky bottom-0 border-t-2 bg-muted`}>{fmt(v)}</td>
+                ))}
+                <td colSpan={FOLLOW_UP_COLS.length} className="sticky bottom-0 border-t-2 border-border bg-muted" />
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>

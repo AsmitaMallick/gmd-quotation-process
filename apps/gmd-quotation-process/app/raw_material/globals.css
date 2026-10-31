@@ -1,12 +1,12 @@
 @theme inline {
-  --font-body-sm: var(--font-poppins), sans-serif;
-  --font-body-md: var(--font-poppins), sans-serif;
-  --font-body-lg: var(--font-poppins), sans-serif;
-  --font-headline-sm: var(--font-poppins), sans-serif;
-  --font-headline-md: var(--font-poppins), sans-serif;
-  --font-display-lg: var(--font-poppins), sans-serif;
-  --font-label-md: var(--font-poppins), sans-serif;
-  --font-mono-md: var(--font-poppins), sans-serif;
+  --font-body-sm: var(--font-inter), sans-serif;
+  --font-body-md: var(--font-inter), sans-serif;
+  --font-body-lg: var(--font-inter), sans-serif;
+  --font-headline-sm: var(--font-inter), sans-serif;
+  --font-headline-md: var(--font-inter), sans-serif;
+  --font-display-lg: var(--font-inter), sans-serif;
+  --font-label-md: var(--font-inter), sans-serif;
+  --font-mono-md: var(--font-inter), sans-serif;
 
   --text-body-sm: 13px;
   --text-body-sm--line-height: 18px;
