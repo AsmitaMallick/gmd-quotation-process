@@ -18,8 +18,6 @@ export interface PhysicalStockRow {
   sum_of_physical_stock: string | null;
   stock_as_per_erp: string | null;
   rate_unit: string | null;
-  rate_per_pc_qty_weight: string | null;
-  weight_per_pc: string | null;
   item_wise_value: string | null;
   moving_within_3_months: string | null;
   order_ag_approval_recvd: string | null;
