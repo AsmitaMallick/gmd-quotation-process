@@ -96,14 +96,19 @@ async function main() {
     return;
   }
 
-  const ops = [prisma.creditor.deleteMany(), prisma.creditorAdvance.deleteMany()];
+  const inserts = [];
   for (let i = 0; i < creditors.records.length; i += CHUNK) {
-    ops.push(prisma.creditor.createMany({ data: creditors.records.slice(i, i + CHUNK) }) as never);
+    inserts.push(prisma.creditor.createMany({ data: creditors.records.slice(i, i + CHUNK) }));
   }
   for (let i = 0; i < advances.records.length; i += CHUNK) {
-    ops.push(prisma.creditorAdvance.createMany({ data: advances.records.slice(i, i + CHUNK) }) as never);
+    inserts.push(prisma.creditorAdvance.createMany({ data: advances.records.slice(i, i + CHUNK) }));
   }
-  await prisma.$transaction(ops);
+  // Deletes first, so a failed insert leaves both tables as they were.
+  await prisma.$transaction([
+    prisma.creditor.deleteMany(),
+    prisma.creditorAdvance.deleteMany(),
+    ...inserts,
+  ]);
   console.log(`\napplied: ${creditors.records.length} bills + ${advances.records.length} advances written.`);
 }
 
