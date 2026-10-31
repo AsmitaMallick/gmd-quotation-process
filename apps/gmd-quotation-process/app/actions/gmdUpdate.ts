@@ -1083,7 +1083,9 @@ export async function uploadSupplierRatesAction(rows: SupplierRate[]) {
         prisma.rawMaterial.create({
           data: {
             erpItemCode: r.erpItemCode,
-            l8ItemCategory: "TRADING VALVE",
+            // Plural, matching every existing master row; the singular would not
+            // match the `contains`/cascade filters used elsewhere.
+            l8ItemCategory: "TRADING VALVES",
             usdRateOption: String(r.rateUsd),
             cost: inr(r.rateUsd),
             vendorReference: vendorReferenceOf(r),

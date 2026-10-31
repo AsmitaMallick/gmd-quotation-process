@@ -121,9 +121,17 @@ export interface MasterRate {
   /** usdRateOption parsed to a number, null when blank. */
   usd: number | null;
   vendorReference: string | null;
-  /** l8ItemCategory; only TRADING VALVE (or blank) rows may be priced here. */
+  /** l8ItemCategory; only TRADING VALVE(S) (or blank) rows may be priced here. */
   category: string | null;
 }
+
+/**
+ * The master stores the plural "TRADING VALVES" (all 916 rows as of 31 Oct 2026),
+ * while parts of the app say the singular. Both name the same category, so accept
+ * either — an exact match on the singular rejected every real row.
+ */
+export const isTradingValve = (category: string): boolean =>
+  /^TRADING VALVES?$/.test(category.trim().toUpperCase());
 
 export interface RateChange {
   old: MasterRate;
@@ -145,8 +153,8 @@ export function planSupplierRateUpload(master: MasterRate[], incoming: SupplierR
     if (!old) {
       if (VALID_ERP_CODE.test(next.erpItemCode)) adds.push(next);
       else notMatched.push({ rate: next, reason: "Not in the master and not a valid ERP code (3 capital letters + 6 digits)" });
-    } else if (old.category && old.category.trim().toUpperCase() !== "TRADING VALVE") {
-      notMatched.push({ rate: next, reason: `Item category is ${old.category}, not TRADING VALVE` });
+    } else if (old.category && !isTradingValve(old.category)) {
+      notMatched.push({ rate: next, reason: `Item category is ${old.category}, not TRADING VALVE(S)` });
     } else if (old.usd === next.rateUsd && (old.vendorReference ?? "") === vendorReferenceOf(next)) unchanged.push(next);
     else updates.push({ old, next });
   }
