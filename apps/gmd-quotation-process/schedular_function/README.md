@@ -33,6 +33,7 @@ every 2 hours. All are staggered so no two heavy ones collide.
 | PBG reminder emails *(daily, 09:00 IST)* | `POST /api/scheduler/pbg-reminders` | `pbg-reminders` | `PbgData`, `PbgReminderLog` -> direct SMTP |
 | C Batch marks | `POST /api/scheduler/c-batch` | `c-batch-sync` | `ITEM MASTER ERP` |
 | ERP Contract No sync | `POST /api/scheduler/erp-contract-no` | `erp-contract-no-sync` | `SALE_BILL`, `MC` |
+| Ledger sync *(daily, 01:55)* | `POST /api/scheduler/ledger` | `ledger-sync` | `DEBTORS`, `CREDITORS`, `ADVANCE TO CREDITORS` -> `Debtor`, `Creditor`, `CreditorAdvance` |
 
 The stagger is deliberate. `raw-material`, `supply-history` and
 `contract-review` each full-table-read the tables the others write. `bom-mast`
@@ -713,6 +714,24 @@ Notes:
   complete, never wrong, which keeps the sync that reads it safe.
 - `execution-tracking` refreshes this table before it runs, so the manual path
   does not depend on the :35 job having fired.
+
+## `ledger`
+
+Daily at **01:55** (`0 55 1 * * *`, ofelia 6-field cron): after the hourly block and
+before the working day, so the debtors and creditors pages open on that
+morning's ledger. Entry: `runScheduledLedgerSync()` -> `runLedgerSync()` in
+`ledger-sync.ts`, which `scripts/sync-debtors.ts` and `scripts/sync-creditors.ts`
+also call (dry-run default, `--apply`, `--dump-headers` unchanged).
+
+- Snapshot copy: each of `Debtor`, `Creditor`, `CreditorAdvance` is deleted and
+  refilled **in its own transaction**. A renamed tab or column fails that ledger
+  (`report.<ledger>.error`), leaves its table as it was, and does not stop the
+  others. The route then returns `success:false` (HTTP 200) and the Ofelia script
+  exits 1.
+- Skipped rows (blank ACC_CODE, bad number/date) are counted, not fatal.
+- Report: `{ debtors, creditors, advances }`, each `{ read, mapped, skipped,
+  skippedRows, written, inDb, error? }`.
+- The latch is in-process only; see the `shortcut:` comment in `ledger-sync.ts`.
 
 ## `execution-tracking`
 
