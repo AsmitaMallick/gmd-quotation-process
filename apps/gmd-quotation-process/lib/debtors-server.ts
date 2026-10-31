@@ -7,6 +7,8 @@ import { buildBillInfo } from "@/lib/debtorJoins";
 import { indexFollowUps } from "@/lib/ledgerFollowUp";
 import type { LedgerSide } from "@/lib/debtorsAgeing";
 import type { FollowUp } from "@/lib/debtorJoins";
+import { parseMsmeSettings } from "@/lib/msme";
+import type { MsmeSettings } from "@/lib/msme";
 import { legalCaseToView } from "@/lib/legalStatus";
 import type { LegalCaseView } from "@/lib/legalStatus";
 
@@ -19,6 +21,8 @@ export async function getFollowUps(ledger: LedgerSide): Promise<Record<string, F
       lastFollowUp: r.lastFollowUp?.toISOString().slice(0, 10) ?? null,
       promisedDate: r.promisedDate?.toISOString().slice(0, 10) ?? null,
       promisedAmount: r.promisedAmount?.toString() ?? null,
+      creditDays: r.creditDays?.toString() ?? null,
+      nextActionDate: r.nextActionDate?.toISOString().slice(0, 10) ?? null,
     })),
   );
 }
@@ -27,6 +31,12 @@ export async function getFollowUps(ledger: LedgerSide): Promise<Record<string, F
 export async function getLegalCases(ledger: LedgerSide): Promise<Record<string, LegalCaseView>> {
   const rows = await prisma.partyLegalCase.findMany({ where: { ledger } });
   return Object.fromEntries(rows.map((r) => [r.accCode, legalCaseToView(r)]));
+}
+
+/** Settings live as LookupOption rows (edited on /admin/lookup-options); absent rows fall back to the documented defaults. */
+export async function loadMsmeSettings(): Promise<MsmeSettings> {
+  const rows = await prisma.lookupOption.findMany({ where: { type: { startsWith: "msme." }, isActive: true }, select: { type: true, value: true } });
+  return parseMsmeSettings(rows);
 }
 
 function toNum(value: { toString(): string } | null): number | null {
@@ -40,12 +50,13 @@ function toIso(value: Date | null): string | null {
 }
 
 export async function getDebtors(): Promise<DebtorsResult> {
-  const [bills, regs, bgRecords, followUps, legalCases] = await Promise.all([
+  const [bills, regs, bgRecords, followUps, legalCases, msme] = await Promise.all([
     prisma.saleBill.findMany({ select: { vrNo: true, orderVrNo: true, partyRefNo: true, itemCode: true } }),
     prisma.saleRegister.findMany({ select: { invoiceNo: true, itemName: true, orderCopy: true, invoice: true, inspectionReport: true, driveLink: true } }),
     prisma.bankGuarantee.findMany({ select: { beneficiaryName: true, bgAmt: true, cancelledStatus: true } }),
     getFollowUps("debtor"),
     getLegalCases("debtor"),
+    loadMsmeSettings(),
   ]);
 
   const records = await prisma.debtor.findMany({
@@ -101,5 +112,6 @@ export async function getDebtors(): Promise<DebtorsResult> {
     bgs: bgRecords.map((b) => ({ ...b, bgAmt: toNum(b.bgAmt) })),
     followUps,
     legalCases,
+    msme,
   };
 }

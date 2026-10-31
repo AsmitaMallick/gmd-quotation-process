@@ -14,11 +14,10 @@ import type { Bucket } from "@/lib/debtorsAgeing";
 import { CREDITOR_PREFS_KEY, DEFAULT_CREDITOR_PREFS, dateSort, loadPrefs, numericSort, savePrefs, textSort, toAmount, toTime } from "@/lib/tablePrefs";
 import type { TablePrefs } from "@/lib/tablePrefs";
 import { formatIndianNumber } from "@/lib/formatCurrency";
-import { downloadCsv, followUpFor, toCsv } from "@/lib/debtorJoins";
+import { EMPTY_FOLLOW_UP, downloadCsv, followUpFor, toCsv } from "@/lib/debtorJoins";
 import type { FollowUp } from "@/lib/debtorJoins";
 import { CREDITOR_STATUSES } from "@/lib/ledgerFollowUp";
 
-const EMPTY_FOLLOW_UP: FollowUp = { owner: null, contactName: null, contactPhone: null, contactEmail: null, lastFollowUp: null, promisedDate: null, promisedAmount: null, status: null, remarks: null };
 const FOLLOW_UP_COLS: { field: keyof FollowUp; label: string; type?: "date" }[] = [
   { field: "owner", label: "Accounts owner" },
   { field: "contactName", label: "Contact name" },

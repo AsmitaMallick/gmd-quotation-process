@@ -21,7 +21,14 @@ export type FollowUp = {
   promisedAmount: string | null;
   status: string | null;
   remarks: string | null;
+  creditDays: string | null; // agreed days, blank = no written agreement
+  clientType: string | null;
+  udyamOnInvoice: string | null;
+  nextActionDate: string | null; // yyyy-mm-dd
+  samadhaanNo: string | null;
+  samadhaanStatus: string | null;
 };
+export const EMPTY_FOLLOW_UP: FollowUp = { owner: null, contactName: null, contactPhone: null, contactEmail: null, lastFollowUp: null, promisedDate: null, promisedAmount: null, status: null, remarks: null, creditDays: null, clientType: null, udyamOnInvoice: null, nextActionDate: null, samadhaanNo: null, samadhaanStatus: null };
 
 type SaleBillIn = { vrNo: string; orderVrNo: string | null; partyRefNo: string | null; itemCode: string | null };
 type SaleRegIn = { invoiceNo: string; itemName: string | null; orderCopy: string | null; invoice: string | null; inspectionReport: string | null; driveLink: string | null };

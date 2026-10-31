@@ -36,3 +36,11 @@ test('later edit wins when two rows share a key', () => {
   ])
   assert.equal(m['A1'].owner, 'second')
 })
+
+test('credit days: blank clears to null, whole numbers pass, junk is rejected', () => {
+  const base = { ledger: 'debtor', accCode: 'A1' }
+  assert.equal((normaliseFollowUp({ ...base, creditDays: '' }) as any).data.creditDays, null)
+  assert.equal((normaliseFollowUp({ ...base, creditDays: '30' }) as any).data.creditDays, 30)
+  assert.ok('error' in normaliseFollowUp({ ...base, creditDays: '4.5' }))
+  assert.ok('error' in normaliseFollowUp({ ...base, nextActionDate: 'soon' }))
+})

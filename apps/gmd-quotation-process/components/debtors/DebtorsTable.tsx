@@ -16,10 +16,11 @@ import type { TablePrefs } from "@/lib/tablePrefs";
 import { LEGAL_STATUSES, isUnderLitigation, resolveProvision, splitDues } from "@/lib/legalStatus";
 import type { LegalCaseView } from "@/lib/legalStatus";
 import { formatIndianNumber } from "@/lib/formatCurrency";
-import { bgExposureByName, bgFor, billInfoFor, downloadCsv, followUpFor, toCsv } from "@/lib/debtorJoins";
+import { EMPTY_FOLLOW_UP, bgExposureByName, bgFor, billInfoFor, downloadCsv, followUpFor, toCsv } from "@/lib/debtorJoins";
 import type { BgRow, BillInfo, FollowUp } from "@/lib/debtorJoins";
+import { dueToday, partyMsme } from "@/lib/msme";
+import type { MsmeSettings, PartyMsme } from "@/lib/msme";
 
-const EMPTY_FOLLOW_UP: FollowUp = { owner: null, contactName: null, contactPhone: null, contactEmail: null, lastFollowUp: null, promisedDate: null, promisedAmount: null, status: null, remarks: null };
 const FOLLOW_UP_COLS: { field: keyof FollowUp; label: string; type?: "date" }[] = [
   { field: "owner", label: "Accounts owner" },
   { field: "contactName", label: "Contact name" },
@@ -30,7 +31,20 @@ const FOLLOW_UP_COLS: { field: keyof FollowUp; label: string; type?: "date" }[] 
   { field: "promisedAmount", label: "Promised amount" },
   { field: "status", label: "Follow-up status" },
   { field: "remarks", label: "Remarks" },
+  { field: "creditDays", label: "Agreed credit days" },
+  { field: "clientType", label: "Client type" },
+  { field: "udyamOnInvoice", label: "Udyam on invoice" },
+  { field: "nextActionDate", label: "Next action date", type: "date" },
+  { field: "samadhaanNo", label: "Samadhaan case no." },
+  { field: "samadhaanStatus", label: "Samadhaan status" },
 ];
+// Computed, read-only, rendered right after the BG column. "Promise vs paid" is a column, not a view.
+// shortcut: there is no receipts feed, so "paid" is inferred from dues still overdue after the promised date, upgrade when receipts are synced
+const MSME_COLS = [["msmeStage", "Follow-up stage"], ["msmeDays", "Days past MSME due"], ["msmeInterest", "MSME interest"], ["msmeClaimable", "Claimable (dues + interest)"], ["promiseVsPaid", "Promise vs paid"]] as const;
+type View = "all" | "today" | "breach" | "stage";
+const VIEWS: [View, string][] = [["all", "All parties"], ["today", "Due today"], ["breach", "MSME breach list"], ["stage", "Ageing by stage"]];
+const promiseState = (p: { follow: FollowUp; overdue: number }, startOfToday: number) =>
+  (toTime(p.follow.promisedDate) ?? Infinity) < startOfToday && p.overdue > 0 ? "Missed" : p.follow.promisedDate || p.follow.promisedAmount ? "Pending" : null;
 
 const EMPTY_LEGAL: LegalCaseView = { status: null, forum: null, caseNo: null, filingDate: null, nextHearingDate: null, advocate: null, claimAmount: null, interestClaimed: null, provisionPct: null, provisionAmount: null, documentLink: null, lastUpdate: null };
 const LEGAL_COLS: { field: keyof LegalCaseView; label: string; type?: "date" | "number" }[] = [
@@ -48,7 +62,7 @@ const LEGAL_COLS: { field: keyof LegalCaseView; label: string; type?: "date" | "
   { field: "lastUpdate", label: "Legal last update" },
 ];
 
-type PartyRow = PartyAgeing & { bg: number; follow: FollowUp; legal: LegalCaseView };
+type PartyRow = PartyAgeing & { bg: number; follow: FollowUp; legal: LegalCaseView; msme: PartyMsme; promise: string | null };
 
 // Sorting only: cells are still rendered by hand below, in this same column order.
 const features = tableFeatures({ rowSortingFeature, sortedRowModel: createSortedRowModel(), sortFns: { numeric: numericSort, date: dateSort, text: textSort } });
@@ -64,10 +78,15 @@ const COLUMNS = col.columns([
   amount("credits", "Unadjusted credit", (p) => p.credits),
   amount("net", "Net (dues minus credits)", (p) => p.net),
   amount("bg", "BG exposure (open BGs)", (p) => p.bg),
+  col.accessor((p) => p.msme.stage ?? undefined, { id: "msmeStage", header: "Follow-up stage", sortFn: "numeric", sortUndefined: "last" }),
+  col.accessor((p) => p.msme.daysPastDue ?? undefined, { id: "msmeDays", header: "Days past MSME due", sortFn: "numeric", sortUndefined: "last" }),
+  amount("msmeInterest", "MSME interest", (p) => p.msme.interest),
+  amount("msmeClaimable", "Claimable (dues + interest)", (p) => p.msme.claimable),
+  textCol("promiseVsPaid", "Promise vs paid", (p) => p.promise),
   ...FOLLOW_UP_COLS.map((c) =>
     c.type === "date"
       ? col.accessor((p) => toTime(p.follow[c.field]), { id: c.field, header: c.label, sortFn: "date", sortUndefined: "last" })
-      : c.field === "promisedAmount"
+      : c.field === "promisedAmount" || c.field === "creditDays"
         ? col.accessor((p) => toAmount(p.follow[c.field]), { id: c.field, header: c.label, sortFn: "numeric", sortUndefined: "last" })
         : textCol(c.field, c.label, (p) => p.follow[c.field]),
   ),
@@ -79,7 +98,7 @@ const COLUMNS = col.columns([
         : textCol(c.field, c.label, (p) => p.legal[c.field]),
   ),
 ]);
-const RIGHT_ALIGNED = new Set<string>(["totalDues", "overdue", ...BUCKETS, "credits", "net", "bg"]);
+const RIGHT_ALIGNED = new Set<string>(["totalDues", "overdue", ...BUCKETS, "credits", "net", "bg", "msmeDays", "msmeInterest", "msmeClaimable"]);
 
 interface DebtorsTableProps {
   rows: DebtorRow[];
@@ -88,6 +107,7 @@ interface DebtorsTableProps {
   bgs: BgRow[];
   followUps: Record<string, FollowUp>;
   legalCases: Record<string, LegalCaseView>;
+  msme: MsmeSettings;
 }
 
 function formatDate(value: string | null): string {
@@ -165,8 +185,10 @@ function DocLinks({ info }: { info?: BillInfo }) {
   );
 }
 
-export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCases }: DebtorsTableProps) {
+export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCases, msme }: DebtorsTableProps) {
   const [bucket, setBucket] = useState<Bucket | null>(null);
+  const [view, setView] = useState<View>("all");
+  const [stageFilter, setStageFilter] = useState<number | null>(null);
   const [prefs, setPrefs] = useState<TablePrefs>(DEFAULT_DEBTOR_PREFS);
   const [hydrated, setHydrated] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
@@ -239,10 +261,31 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
   const owners = useMemo(() => [...new Set(Object.values(follow).map((f) => f.owner).filter((o): o is string => !!o))].sort(), [follow]);
 
   // shortcut: re-sorts as soon as an edited cell is saved (a row can jump after editing the sorted column), upgrade by freezing order while an input is focused
-  const withExtras = useMemo<PartyRow[]>(
-    () => summary.parties.map((p) => ({ ...p, bg: bgFor(bgMap, p.accName), follow: { ...EMPTY_FOLLOW_UP, ...followUpFor(follow, p.accCode) }, legal: { ...EMPTY_LEGAL, ...legal[p.accCode] } })),
-    [summary, bgMap, follow, legal],
-  );
+  const openBills = useMemo(() => {
+    const m = new Map<string, { bal: number; vrDate: string | null }[]>();
+    for (const r of rows) {
+      const bal = outstanding(r);
+      if (bal > 0) m.set(r.accCode, [...(m.get(r.accCode) ?? []), { bal, vrDate: r.vrDate }]);
+    }
+    return m;
+  }, [rows]);
+  const withExtras = useMemo<PartyRow[]>(() => {
+    const startOfToday = new Date(today).setHours(0, 0, 0, 0);
+    return summary.parties.map((p) => {
+      const f = { ...EMPTY_FOLLOW_UP, ...followUpFor(follow, p.accCode) };
+      const l = { ...EMPTY_LEGAL, ...legal[p.accCode] };
+      const promise = promiseState({ follow: f, overdue: p.overdue }, startOfToday);
+      const cd = f.creditDays ? Number(f.creditDays) : null;
+      const m = partyMsme(openBills.get(p.accCode) ?? [], cd !== null && Number.isFinite(cd) ? cd : null, msme, today, { promiseMissed: promise === "Missed", underLitigation: isUnderLitigation(l.status) });
+      return { ...p, bg: bgFor(bgMap, p.accName), follow: f, legal: l, msme: m, promise };
+    });
+  }, [summary, bgMap, follow, legal, openBills, msme, today]);
+  // Ageing by stage: litigating parties have a null stage and so never appear here.
+  const stageStats = useMemo(() => {
+    const out = Array.from({ length: 7 }, () => ({ count: 0, value: 0 }));
+    for (const p of withExtras) if (p.msme.stage !== null && p.totalDues > 0) { out[p.msme.stage].count += 1; out[p.msme.stage].value += p.totalDues; }
+    return out;
+  }, [withExtras]);
   // Parties under litigation leave the collection table (and so every reminder-style filter) and get their own section.
   const litigating = useMemo(() => {
     const needle = squish(search);
@@ -261,9 +304,12 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
         if (over45 && p.buckets["61-90"] + p.buckets["91-180"] + p.buckets["180+"] <= 0) return false;
         if (broken && !((toTime(p.follow.promisedDate) ?? Infinity) < startOfToday && p.overdue > 0)) return false;
         if (bucket && p.buckets[bucket] <= 0) return false;
+        if (view === "today" && !dueToday({ nextActionDate: p.follow.nextActionDate, promisedDate: p.follow.promisedDate, overdue: p.overdue, underLitigation: false }, today)) return false;
+        if (view === "breach" && (p.msme.daysPastDue ?? -1) <= 0) return false;
+        if (view === "stage" && stageFilter !== null && p.msme.stage !== stageFilter) return false;
         return true;
       });
-  }, [withExtras, today, search, owner, overdueOnly, over45, broken, bucket]);
+  }, [withExtras, today, search, owner, overdueOnly, over45, broken, bucket, view, stageFilter]);
 
   const table = useTable({
     features,
@@ -290,9 +336,9 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
     downloadCsv(
       "debtors_party_wise.csv",
       toCsv(
-        ["Party", "Total dues", "Overdue", ...BUCKETS, "Unadjusted credit", "Net", "BG exposure", ...FOLLOW_UP_COLS.map((c) => c.label), ...LEGAL_COLS.map((c) => c.label)],
+        ["Party", "Total dues", "Overdue", ...BUCKETS, "Unadjusted credit", "Net", "BG exposure", ...MSME_COLS.map(([, l]) => l), ...FOLLOW_UP_COLS.map((c) => c.label), ...LEGAL_COLS.map((c) => c.label)],
         parties.map((p) => {
-          return [p.accName, p.totalDues, p.overdue, ...BUCKETS.map((b) => p.buckets[b]), p.credits, p.net, p.bg, ...FOLLOW_UP_COLS.map((c) => p.follow[c.field]), ...LEGAL_COLS.map((c) => p.legal[c.field])];
+          return [p.accName, p.totalDues, p.overdue, ...BUCKETS.map((b) => p.buckets[b]), p.credits, p.net, p.bg, p.msme.stage, p.msme.daysPastDue, Math.round(p.msme.interest), Math.round(p.msme.claimable), p.promise, ...FOLLOW_UP_COLS.map((c) => p.follow[c.field]), ...LEGAL_COLS.map((c) => p.legal[c.field])];
         }),
       ),
     );
@@ -318,7 +364,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
     );
   }
 
-  const span = BUCKETS.length + 15 + LEGAL_COLS.length;
+  const span = BUCKETS.length + 6 + MSME_COLS.length + FOLLOW_UP_COLS.length + LEGAL_COLS.length;
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -353,6 +399,21 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
       <div className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card">
         <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
           <h2 className="text-sm font-semibold text-foreground">Party-wise outstanding</h2>
+          {VIEWS.map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={view === v}
+              className={`rounded-full border px-3 py-1 text-sm ${view === v ? "border-primary bg-primary/10 font-semibold" : "border-border"}`}
+              onClick={() => {
+                setView(v);
+                setStageFilter(null);
+                if (v === "breach") setPrefs((p) => ({ ...p, sorting: [{ id: "totalDues", desc: true }] })); // biggest amount first
+              }}
+            >
+              {label}
+            </button>
+          ))}
           <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">{parties.length} parties</span>
           <select aria-label="Filter by owner" value={owner} onChange={(e) => setFilter("owner", e.target.value)} className="rounded border border-border bg-card px-2 py-1 text-sm">
             <option value="">All owners</option>
@@ -377,6 +438,16 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
             <DebouncedSearchInput value={search} onCommit={(v) => setFilter("search", v)} placeholder="Search party name or code" />
           </div>
         </div>
+        {view === "stage" && (
+          <div className="grid grid-cols-4 gap-2 border-b border-border px-4 py-2.5 md:grid-cols-7">
+            {stageStats.map((st, i) => (
+              <button key={i} type="button" onClick={() => setStageFilter(stageFilter === i ? null : i)} className={`rounded-lg border px-3 py-2 text-left ${stageFilter === i ? "border-primary bg-primary/10" : "border-border"}`}>
+                <div className="text-xs font-semibold text-muted-foreground">Stage {i} ({st.count})</div>
+                <div className="text-sm font-bold tabular-nums">{fmt(st.value)}</div>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="select-none">
@@ -417,6 +488,11 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
                     <td className={TD}>{p.credits ? fmt(p.credits) : "-"}</td>
                     <td className={TD}>{fmt(p.net)}</td>
                     <td className={TD}>{p.bg ? fmt(p.bg) : "-"}</td>
+                    <td className={`${TD} text-center`}>{p.msme.stage ?? "-"}</td>
+                    <td className={TD}>{p.msme.daysPastDue ?? "-"}</td>
+                    <td className={TD}>{p.msme.interest > 0 ? fmt(Math.round(p.msme.interest)) : "-"}</td>
+                    <td className={TD}>{p.msme.claimable > 0 ? fmt(Math.round(p.msme.claimable)) : "-"}</td>
+                    <td className={`${TD} text-left ${p.promise === "Missed" ? "font-semibold text-red-700" : ""}`}>{p.promise ?? "-"}</td>
                     {FOLLOW_UP_COLS.map((c) => {
                       const v = p.follow[c.field] ?? "";
                       return (
@@ -489,7 +565,7 @@ export default function DebtorsTable({ rows, billInfo, bgs, followUps, legalCase
                 {[sumOf((p) => p.totalDues), sumOf((p) => p.overdue), ...BUCKETS.map((b) => sumOf((p) => p.buckets[b])), sumOf((p) => p.credits), sumOf((p) => p.net), sumOf((p) => p.bg)].map((v, i) => (
                   <td key={i} className={`${TD} sticky bottom-0 border-t-2 bg-muted`}>{fmt(v)}</td>
                 ))}
-                <td colSpan={FOLLOW_UP_COLS.length + LEGAL_COLS.length} className="sticky bottom-0 border-t-2 border-border bg-muted" />
+                <td colSpan={MSME_COLS.length + FOLLOW_UP_COLS.length + LEGAL_COLS.length} className="sticky bottom-0 border-t-2 border-border bg-muted" />
               </tr>
             </tfoot>
           </table>

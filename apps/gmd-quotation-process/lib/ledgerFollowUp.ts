@@ -17,6 +17,12 @@ export type LedgerFollowUpInput = {
   promisedAmount?: string | null;
   status?: string | null;
   remarks?: string | null;
+  creditDays?: string | null;
+  clientType?: string | null;
+  udyamOnInvoice?: string | null;
+  nextActionDate?: string | null; // yyyy-mm-dd
+  samadhaanNo?: string | null;
+  samadhaanStatus?: string | null;
 };
 
 export const CREDITOR_STATUSES = ["to pay", "on hold", "disputed", "adjust advance"] as const;
@@ -45,6 +51,11 @@ export function normaliseFollowUp(i: LedgerFollowUpInput) {
   const amt = text(i.promisedAmount)?.replace(/,/g, "") ?? null;
   const promisedAmount = amt === null ? null : Number(amt);
   if (promisedAmount !== null && !Number.isFinite(promisedAmount)) return { error: "Promised amount must be a number." };
+  const next = parseDate(i.nextActionDate, "Next action date");
+  if ("error" in next) return next;
+  const cd = text(i.creditDays);
+  const creditDays = cd === null ? null : Number(cd);
+  if (creditDays !== null && !(Number.isInteger(creditDays) && creditDays >= 0)) return { error: "Credit days must be a whole number." };
   return {
     data: {
       ledger: i.ledger as LedgerKind,
@@ -59,6 +70,12 @@ export function normaliseFollowUp(i: LedgerFollowUpInput) {
       promisedAmount,
       status: text(i.status),
       remarks: text(i.remarks),
+      creditDays,
+      clientType: text(i.clientType),
+      udyamOnInvoice: text(i.udyamOnInvoice),
+      nextActionDate: next.value,
+      samadhaanNo: text(i.samadhaanNo),
+      samadhaanStatus: text(i.samadhaanStatus),
     },
   };
 }
@@ -75,6 +92,12 @@ type StoredRow = {
   promisedAmount?: string | null;
   status?: string | null;
   remarks?: string | null;
+  creditDays?: string | null;
+  clientType?: string | null;
+  udyamOnInvoice?: string | null;
+  nextActionDate?: string | null;
+  samadhaanNo?: string | null;
+  samadhaanStatus?: string | null;
 };
 
 /** Index rows by followUpKey; if two share a key the later one wins. */
@@ -91,6 +114,12 @@ export function indexFollowUps(rows: StoredRow[]): Record<string, FollowUp> {
       promisedAmount: r.promisedAmount ?? null,
       status: r.status ?? null,
       remarks: r.remarks ?? null,
+      creditDays: r.creditDays ?? null,
+      clientType: r.clientType ?? null,
+      udyamOnInvoice: r.udyamOnInvoice ?? null,
+      nextActionDate: r.nextActionDate ?? null,
+      samadhaanNo: r.samadhaanNo ?? null,
+      samadhaanStatus: r.samadhaanStatus ?? null,
     };
   return out;
 }

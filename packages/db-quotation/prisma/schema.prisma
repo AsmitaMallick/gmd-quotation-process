@@ -1205,6 +1205,13 @@ model LedgerFollowUp {
   promisedAmount Decimal?  @db.Decimal(18, 2)
   status         String?
   remarks        String?
+  creditDays      Int?
+  clientType      String?
+  udyamOnInvoice  String?
+  stage           Int?
+  nextActionDate  DateTime?
+  samadhaanNo     String?
+  samadhaanStatus String?
   updatedById    String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
