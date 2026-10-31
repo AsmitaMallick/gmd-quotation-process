@@ -106,6 +106,8 @@
     "contractno:headers": "tsx scripts/sync-erp-contract-no.ts --dump-headers",
     "debtors:sync": "tsx scripts/sync-debtors.ts",
     "debtors:sync:apply": "tsx scripts/sync-debtors.ts --apply",
+    "creditors:sync": "tsx scripts/sync-creditors.ts",
+    "creditors:sync:apply": "tsx scripts/sync-creditors.ts --apply",
     "debtors:joins:sync": "tsx scripts/sync-debtor-joins.ts",
     "debtors:joins:sync:apply": "tsx scripts/sync-debtor-joins.ts --apply",
     "totals:outliers": "tsx scripts/list-total-outliers.ts"

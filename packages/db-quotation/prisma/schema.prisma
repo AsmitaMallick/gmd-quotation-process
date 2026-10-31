@@ -1151,6 +1151,45 @@ model Debtor {
   @@index([accCode])
   
 }
+/// Creditors (payables) ledger bills. Snapshot-replaced from the CREDITORS sheet tab.
+model Creditor {
+  id            String    @id @default(cuid())
+  accSch        String?
+  accCode       String
+  accName       String?
+  vrNo          String?
+  vrDate        DateTime?
+  dueDate       DateTime?
+  unAllocCr     Decimal?  @db.Decimal(18, 2)
+  partyBillNo   String?
+  partyBillDate DateTime?
+  syncedAt      DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([dueDate])
+  @@index([accCode])
+}
+
+/// Advances paid to creditors. Snapshot-replaced from the ADVANCE TO CREDITORS tab.
+model CreditorAdvance {
+  id            String    @id @default(cuid())
+  accSch        String?
+  accCode       String
+  vrNo          String?
+  vrDate        DateTime?
+  unAllocDr     Decimal?  @db.Decimal(18, 2)
+  partyBillNo   String?
+  partyBillDate DateTime?
+  particular    String?
+  narration     String?
+  syncedAt      DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([accCode])
+}
+
 // One row per price change from a supplier price upload (valve rate master).
 model SupplierRateHistory {
   id          String    @id @default(cuid())
