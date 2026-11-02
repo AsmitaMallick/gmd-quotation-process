@@ -132,12 +132,12 @@ async function runDocketFollowupSyncInternal(
   const startTime = Date.now();
   const { fullScan = false } = options;
 
-  // Lookback threshold: explicit since, last sync, or the past 6 hours. The job
-  // runs hourly, so a 24h fallback needlessly re-read large text columns.
+  // Lookback threshold: explicit since, last sync, or the past 48 hours. The
+  // job runs hourly; 48h covers ingestion lag without touching older backlog.
   const lookbackSince =
     options.since ||
     lastSyncTimestamp ||
-    new Date(Date.now() - 6 * 60 * 60 * 1000);
+    new Date(Date.now() - 48 * 60 * 60 * 1000);
 
   // 1. Load active PARTY lookup options
   const partyRows = await prisma.lookupOption.findMany({

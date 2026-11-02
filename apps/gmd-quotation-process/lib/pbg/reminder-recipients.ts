@@ -65,6 +65,35 @@ export function normalizePoKey(
     .toUpperCase();
 }
 
+const PO_PLACEHOLDERS = new Set([
+  "",
+  "-",
+  "--",
+  "—",
+  "–",
+  "N/A",
+  "NA",
+  "NULL",
+  "NIL",
+  ".",
+  "0",
+]);
+
+/**
+ * A PO number is usable only when it is not blank or a placeholder and
+ * contains at least one digit. This keeps values like "GANJAM" or "N/A" out
+ * of reminder mails.
+ */
+export function isUsablePoNumber(
+  poNumber: string | null | undefined,
+): boolean {
+  const key = normalizePoKey(poNumber);
+  if (PO_PLACEHOLDERS.has(key)) return false;
+  if (!/\d/.test(key)) return false;
+  if (/^0+$/.test(key)) return false;
+  return true;
+}
+
 /** Stable key for a PO + recipient group. */
 export function poRecipientKey(
   poNumber: string | null | undefined,

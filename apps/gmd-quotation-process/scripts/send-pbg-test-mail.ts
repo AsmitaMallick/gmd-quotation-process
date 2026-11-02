@@ -4,7 +4,12 @@ import {
   buildReminderEmail,
   type ReminderEmailRow,
 } from "../lib/pbg/reminder-template";
-import { daysUntilExpiry } from "../lib/pbg/reminder-rules";
+import {
+  daysUntilExpiry,
+  isEligibleStatus,
+} from "../lib/pbg/reminder-rules";
+import { isUsablePoNumber } from "../lib/pbg/reminder-recipients";
+import { canonicalPbgClientName } from "../lib/pbg/project-names";
 import {
   invoiceNumbersForRow,
   loadInvoiceLookup,
@@ -14,7 +19,7 @@ import {
   isSmtpConfigured,
   sendPbgMail,
 } from "../lib/services/mailer";
-import { extractEmailsFromValue } from "../lib/enquiryEmailParty";
+import { mergeReminderCc } from "../lib/pbg/reminder-cc";
 
 function argValue(name: string): string | undefined {
   const prefix = `--${name}=`;
@@ -36,7 +41,7 @@ function toNumber(value: { toString(): string } | null): number | null {
 
 async function main() {
   const to = (argValue("to") ?? process.env.MAIL_FROM ?? "").trim();
-  const cc = extractEmailsFromValue(argValue("cc") ?? "");
+  const cc = mergeReminderCc(argValue("cc") ?? process.env.PBG_REMINDER_CC ?? "");
   const party = argValue("party")?.trim();
   const po = argValue("po")?.trim();
   const bgsArg = argValue("bgs")?.trim();
@@ -57,8 +62,8 @@ async function main() {
   if (!party && !po && !bgsArg) {
     throw new Error("Pass --party=<partyName>, --po=<poNumber> or --bgs=<bg1,bg2>.");
   }
-  if (template !== "expired" && template !== "before") {
-    throw new Error("--template must be 'expired' or 'before'.");
+  if (!["expired", "before", "consolidated"].includes(template)) {
+    throw new Error("--template must be 'expired', 'before' or 'consolidated'.");
   }
 
   const bgs = bgsArg
@@ -95,21 +100,24 @@ async function main() {
     orderBy: { bgNo: "asc" },
   });
 
-  const selected = rows.filter((row) => {
-    const poNumber = String(row.poNumber ?? "").trim();
-    if (!poNumber) return false;
+  const eligibleRows = includeAll
+    ? rows
+    : rows.filter((row) => isEligibleStatus(row.status));
+
+  const selected = eligibleRows.filter((row) => {
+    if (!isUsablePoNumber(row.poNumber)) return false;
     if (includeAll) return true;
     if (!row.expiryDate) return false;
     const days = daysUntilExpiry(row.expiryDate);
     if (days === null) return false;
-    return template === "expired"
-      ? days <= 0
-      : days >= 0 && days <= 30;
+    if (template === "expired") return days <= 0;
+    if (template === "before") return days >= 0 && days <= 30;
+    return days <= 30;
   });
 
   if (selected.length === 0) {
     throw new Error(
-      `No ${template === "expired" ? "expired" : "30-day"} BGs matched the given selection.`,
+      `No ${template === "consolidated" ? "expired or 30-day" : template === "expired" ? "expired" : "30-day"} BGs matched the given selection.`,
     );
   }
 
@@ -121,9 +129,22 @@ async function main() {
     expiryDate: isoDate(row.expiryDate),
     poNumber: row.poNumber,
     project: row.project,
-    clientName: row.clientName,
+    clientName: canonicalPbgClientName(row.clientName),
     invoiceNos: invoiceNumbersForRow(row, invoiceLookup),
+    daysUntilExpiry: row.expiryDate
+      ? daysUntilExpiry(row.expiryDate)
+      : null,
   }));
+
+  const expiredEmailRows = emailRows.filter(
+    (row) => (row.daysUntilExpiry ?? 0) <= 0,
+  );
+  const upcomingEmailRows = emailRows.filter(
+    (row) =>
+      typeof row.daysUntilExpiry === "number" &&
+      row.daysUntilExpiry > 0 &&
+      row.daysUntilExpiry <= 30,
+  );
 
   const partyName =
     party ??
@@ -139,15 +160,14 @@ async function main() {
   ).sort();
 
   const onExpiryDate =
-    template === "expired" &&
-    selected.every((row) => {
-      if (!row.expiryDate) return false;
-      return daysUntilExpiry(row.expiryDate) === 0;
-    });
+    expiredEmailRows.length > 0 &&
+    expiredEmailRows.every((row) => row.daysUntilExpiry === 0);
 
   const email = buildReminderEmail({
-    stage: template === "before" ? "BEFORE_30_DAYS" : "EXPIRED",
+    stage: expiredEmailRows.length > 0 ? "EXPIRED" : "BEFORE_30_DAYS",
     rows: emailRows,
+    expiredRows: template === "before" ? [] : expiredEmailRows,
+    upcomingRows: template === "expired" ? [] : upcomingEmailRows,
     onExpiryDate,
     partyName,
     reminderNumber: Number.isFinite(reminderNumber) ? reminderNumber : 1,

@@ -7,8 +7,8 @@ import {
   extractEmailsFromValue,
   hasDocketCreationKeyword,
   isGenuineGmdClientThread,
+  isPendingDocketCandidate,
   isPurchaseOrderMail,
-  isSentToLaserEntry,
 } from "@/lib/docketPending";
 import {
   enqueueDocketAiValidation,
@@ -214,25 +214,36 @@ export async function GET() {
     const pendingRows: PendingRowInternal[] = [];
 
     for (const t of threads) {
-      // Strictly only show mails where GMD Client is genuinely true
-      if (!isGenuineGmdClientThread(t)) continue;
+      const aiVerdict = t.aiIsNewDocket ?? null;
+      // AI-rejected rows are hidden permanently.
+      if (aiVerdict === false) continue;
 
       const text = `${t.subject || ""} ${t.body || ""} ${t.bodyPreview || ""}`;
+
       const hasCreationKeyword = hasDocketCreationKeyword(text);
       // Customer POs are not docket requests; hides rows flagged earlier.
       if (isPurchaseOrderMail(t) && !hasCreationKeyword) continue;
 
       const toEmails = extractEmailsFromValue(t.toDetails);
       const ccEmails = extractEmailsFromValue(t.ccDetails);
-      const isSentToLaserentry = isSentToLaserEntry(t.toDetails, t.ccDetails, text);
 
       const isSenderInternal = isInternalEmail(t.sender);
 
-      // Criteria for Pending Dockets section under GMD-Clients:
-      // 1. Thread sent/forwarded to laserentry.four@gmail.com or enquiry5.laserpowerinfra@gmail.com
-      // 2. OR Thread has explicit docket creation request (e.g. "please create docket", "REQUEST FOR DOCKET")
-      const isCandidate = isSentToLaserentry || hasCreationKeyword;
-      if (!isCandidate) continue;
+      // Verified true rows remain visible even if the candidate rules change
+      // later. Undecided rows must still pass the current rule:
+      // genuine GMD client AND forwarded to Laser Entry AND docket context.
+      if (aiVerdict !== true) {
+        if (!isGenuineGmdClientThread(t)) continue;
+        const isCandidate = isPendingDocketCandidate({
+          userLabels: t.userLabels,
+          isGmdClient: t.isGmdClient,
+          company: t.company,
+          toDetails: t.toDetails,
+          ccDetails: t.ccDetails,
+          text,
+        });
+        if (!isCandidate) continue;
+      }
 
       // Check if laserentry.four@gmail.com sent a reply on this thread
       const sender = (t.sender || "").toLowerCase();
@@ -406,8 +417,8 @@ export async function GET() {
     const aiPendingCount = visible.filter(
       (p) => p.aiIsNewDocket == null && p.aiAttempts < maxAttempts
     ).length;
-    const aiRejectedCount = pendingRows.filter(
-      (p) => p.aiIsNewDocket === false
+    const aiRejectedCount = threads.filter(
+      (t) => t.aiIsNewDocket === false
     ).length;
     const noDocketAssignedCount = rows.filter(
       (r) => r.pendingStatus === "PENDING_DOCKET"

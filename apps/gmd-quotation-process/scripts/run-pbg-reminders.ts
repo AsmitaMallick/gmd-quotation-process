@@ -75,6 +75,8 @@ async function main() {
     const email = buildReminderEmail({
       stage: task.stage,
       rows: task.rows,
+      expiredRows: task.expiredRows,
+      upcomingRows: task.upcomingRows,
       onExpiryDate: task.onExpiryDate,
       partyName: task.partyName,
       reminderNumber: task.reminderNumber,

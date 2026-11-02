@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   groupByPartyRecipient,
   groupByRecipient,
+  isUsablePoNumber,
   normalizePartyKey,
   parseRecipientEmails,
   partyRecipientKey,
@@ -65,6 +66,40 @@ test('party recipient key combines party and sorted recipients', () => {
     partyRecipientKey('G V P R ENGINEERS LIMITED', ['B@x.com', 'a@x.com']),
     'GVPRENGINEERSLIMITED|a@x.com,b@x.com',
   )
+})
+
+test('isUsablePoNumber rejects blank, placeholders and values without a digit', () => {
+  for (const value of [
+    '',
+    '   ',
+    '-',
+    '--',
+    '—',
+    '–',
+    'N/A',
+    'NA',
+    'NULL',
+    'NIL',
+    '.',
+    '0',
+    '0000',
+    'GANJAM',
+    null,
+    undefined,
+  ]) {
+    assert.equal(isUsablePoNumber(value), false, String(value))
+  }
+})
+
+test('isUsablePoNumber accepts real PO numbers', () => {
+  for (const value of [
+    '3000179463',
+    'GVPR/GANJAM/23-24/340',
+    'GEMC-511687790902751',
+    'NCC/SWSM-UP/1832/21-22',
+  ]) {
+    assert.equal(isUsablePoNumber(value), true, value)
+  }
 })
 
 test('groups by party + recipient across POs and skips blank party / no email', () => {

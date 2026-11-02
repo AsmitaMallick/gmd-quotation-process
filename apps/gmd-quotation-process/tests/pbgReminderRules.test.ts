@@ -28,7 +28,15 @@ test('closed is never eligible; open, running and expired are', () => {
   for (const status of ['OPEN', 'open', 'Running', 'EXPIRED']) {
     assert.equal(isEligibleStatus(status), true, status)
   }
-  for (const status of ['CLOSED', 'Closed', 'close', '', null]) {
+  for (const status of [
+    'CLOSED',
+    'Closed',
+    'close',
+    'RETURNED',
+    'Returned',
+    '',
+    null,
+  ]) {
     assert.equal(isEligibleStatus(status), false, String(status))
   }
 })

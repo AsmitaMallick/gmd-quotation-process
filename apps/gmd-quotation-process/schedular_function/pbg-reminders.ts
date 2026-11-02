@@ -27,9 +27,11 @@ import {
   type PlannerRow,
 } from "@/lib/pbg/reminder-plan";
 import {
+  isUsablePoNumber,
   normalizePartyKey,
   normalizePoKey,
 } from "@/lib/pbg/reminder-recipients";
+import { canonicalPbgClientName } from "@/lib/pbg/project-names";
 import {
   invoiceNumbersForRow,
   loadInvoiceLookup,
@@ -40,7 +42,7 @@ import {
   isMailTriggerContinue,
   type ReminderStage,
 } from "@/lib/pbg/reminder-rules";
-import { extractEmailsFromValue } from "@/lib/enquiryEmailParty";
+import { mergeReminderCc } from "@/lib/pbg/reminder-cc";
 import { JobAlreadyRunningError } from "./run-gmd-update";
 
 export type PbgReminderJobName = "pbg-reminders";
@@ -132,8 +134,7 @@ function positiveInt(value: string | undefined, fallback: number): number {
 }
 
 function parseCc(): string[] {
-  const raw = process.env.PBG_REMINDER_CC ?? "";
-  return extractEmailsFromValue(raw);
+  return mergeReminderCc(process.env.PBG_REMINDER_CC ?? "");
 }
 
 /**
@@ -179,7 +180,7 @@ export async function planPbgReminders(
       expiryDate: toIsoDate(row.expiryDate) as string,
       poNumber: row.poNumber,
       project: row.project,
-      clientName: row.clientName,
+      clientName: canonicalPbgClientName(row.clientName),
       contactPerson: row.contactPerson,
       status: row.status,
       mailTrigger: row.mailTrigger,
@@ -193,12 +194,8 @@ export async function planPbgReminders(
   const noParty = eligible.filter(
     (row) => normalizePartyKey(row.clientName) === "",
   );
-  const noPo = withParty.filter(
-    (row) => normalizePoKey(row.poNumber) === "",
-  );
-  const withPo = withParty.filter(
-    (row) => normalizePoKey(row.poNumber) !== "",
-  );
+  const noPo = withParty.filter((row) => !isUsablePoNumber(row.poNumber));
+  const withPo = withParty.filter((row) => isUsablePoNumber(row.poNumber));
   const skippedNoPoBgNos = noPo.map((row) => row.bgNo ?? row.idText);
   const skippedNoParty = noParty.length;
 
@@ -263,7 +260,7 @@ export async function planPbgReminders(
     emails: log.emails,
     sentAt: log.sentAt,
     messageId: log.messageId,
-    pbgClientName: log.pbg.clientName,
+    pbgClientName: canonicalPbgClientName(log.pbg.clientName),
   }));
   const lastExpiredSent = buildLastExpiredSentByGroup(expiredPlannerLogs);
 
@@ -308,10 +305,26 @@ async function writeLogs(
   messageId: string | undefined,
   error: string | undefined,
 ): Promise<void> {
+  const preExpiryIds = new Set(task.preExpiryLogIds);
+  const entries = [
+    ...task.expiredRows.map((row) => ({
+      row,
+      stage: "EXPIRED" as const,
+    })),
+    ...task.upcomingRows
+      .filter((row) => preExpiryIds.has(row.id))
+      .map((row) => ({
+        row,
+        stage: "BEFORE_30_DAYS" as const,
+      })),
+  ];
+
+  if (entries.length === 0) return;
+
   await prisma.pbgReminderLog.createMany({
-    data: task.rows.map((row) => ({
+    data: entries.map(({ row, stage }) => ({
       pbgId: BigInt(row.id),
-      stage: task.stage,
+      stage,
       poNumber: normalizePoKey(row.poNumber),
       recipientKey: task.recipientKey,
       emails: task.emails.join(", "),
@@ -366,12 +379,9 @@ export async function runScheduledPbgReminders(
 
     const cc = parseCc();
     const udyamNo = process.env.PBG_UDYAM_NO?.trim() || undefined;
-    if (
-      !udyamNo &&
-      tasks.some((task) => task.stage === "EXPIRED" && !task.onExpiryDate)
-    ) {
+    if (!udyamNo && tasks.some((task) => task.expiredRows.length > 0)) {
       console.warn(
-        "[pbg-reminders] PBG_UDYAM_NO is not set; interval mails will show the placeholder.",
+        "[pbg-reminders] PBG_UDYAM_NO is not set; expired mails will show the placeholder.",
       );
     }
 
@@ -380,6 +390,8 @@ export async function runScheduledPbgReminders(
       const email = buildReminderEmail({
         stage: task.stage,
         rows: task.rows,
+        expiredRows: task.expiredRows,
+        upcomingRows: task.upcomingRows,
         onExpiryDate: task.onExpiryDate,
         partyName: task.partyName,
         reminderNumber: task.reminderNumber,

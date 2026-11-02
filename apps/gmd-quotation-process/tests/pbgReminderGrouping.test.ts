@@ -149,6 +149,92 @@ test('a BG that expires during the interval joins the next party cycle', () => {
   assert.equal(nextCycle.tasks[0].rows.length, 2)
 })
 
+test('one consolidated task carries expired and upcoming rows', () => {
+  const result = planReminderTasks({
+    rows: [
+      row({ id: 'expired', daysUntilExpiry: -10, poNumber: 'PO1' }),
+      row({ id: 'upcoming', daysUntilExpiry: 10, poNumber: 'PO2' }),
+    ],
+    preSent: new Set(),
+    preFailed: new Set(),
+    lastExpiredSent: new Map(),
+    now: NOW,
+  })
+
+  assert.equal(result.tasks.length, 1)
+  const task = result.tasks[0]
+  assert.equal(task.stage, 'EXPIRED')
+  assert.deepEqual(task.expiredRows.map((r) => r.id), ['expired'])
+  assert.deepEqual(task.upcomingRows.map((r) => r.id), ['upcoming'])
+  assert.deepEqual(task.preExpiryLogIds, ['upcoming'])
+  assert.equal(task.reminderNumber, 1)
+})
+
+test('a B-only task is sent when the party has no expired BGs', () => {
+  const result = planReminderTasks({
+    rows: [row({ id: 'upcoming', daysUntilExpiry: 30 })],
+    preSent: new Set(),
+    preFailed: new Set(),
+    lastExpiredSent: new Map(),
+    now: NOW,
+  })
+
+  assert.equal(result.tasks.length, 1)
+  assert.equal(result.tasks[0].stage, 'BEFORE_30_DAYS')
+  assert.deepEqual(result.tasks[0].expiredRows, [])
+  assert.deepEqual(result.tasks[0].upcomingRows.map((r) => r.id), ['upcoming'])
+  assert.equal(result.tasks[0].reminderNumber, null)
+})
+
+test('upcoming rows wait for the next expired cycle when expired BGs exist', () => {
+  const rows = [
+    row({ id: 'expired', daysUntilExpiry: -10, poNumber: 'PO1' }),
+    row({ id: 'upcoming', daysUntilExpiry: 30, poNumber: 'PO2' }),
+  ]
+  const key = 'CLIENT|a@x.com'
+
+  const notDue = planReminderTasks({
+    rows,
+    preSent: new Set(),
+    preFailed: new Set(),
+    lastExpiredSent: new Map([
+      [key, new Date(NOW.getTime() - 6 * 86_400_000)],
+    ]),
+    now: NOW,
+  })
+  assert.equal(notDue.tasks.length, 0)
+
+  const due = planReminderTasks({
+    rows,
+    preSent: new Set(),
+    preFailed: new Set(),
+    lastExpiredSent: new Map([
+      [key, new Date(NOW.getTime() - 7 * 86_400_000)],
+    ]),
+    now: NOW,
+  })
+  assert.equal(due.tasks.length, 1)
+  assert.deepEqual(due.tasks[0].upcomingRows.map((r) => r.id), ['upcoming'])
+})
+
+test('expired rows are ordered oldest expiry first', () => {
+  const result = planReminderTasks({
+    rows: [
+      row({ id: 'newer', bgNo: 'BG2', expiryDate: '2026-10-01', daysUntilExpiry: -1 }),
+      row({ id: 'older', bgNo: 'BG1', expiryDate: '2026-09-01', daysUntilExpiry: -31 }),
+    ],
+    preSent: new Set(),
+    preFailed: new Set(),
+    lastExpiredSent: new Map(),
+    now: NOW,
+  })
+
+  assert.deepEqual(result.tasks[0].expiredRows.map((r) => r.id), [
+    'older',
+    'newer',
+  ])
+})
+
 test('different parties and different contacts produce separate tasks', () => {
   const result = planReminderTasks({
     rows: [
@@ -186,6 +272,10 @@ test('pre-expiry stays one-time per BG but groups by party', () => {
   )
   assert.deepEqual(
     preTasks.find((task) => task.partyName === 'Client')?.rows.map((r) => r.id),
+    ['1', '2'],
+  )
+  assert.deepEqual(
+    preTasks.find((task) => task.partyName === 'Client')?.preExpiryLogIds,
     ['2'],
   )
 })
@@ -248,7 +338,7 @@ test('buildExpiredReminderContext counts prior mail cycles and dates', () => {
   ]
 
   const context = buildExpiredReminderContext(logs, 'Client', ['a@x.com'])
-  assert.equal(context.reminderNumber, 2)
+  assert.equal(context.reminderNumber, 3)
   assert.deepEqual(context.earlierMailDates, ['2026-10-26', '2026-11-02'])
 })
 
@@ -265,6 +355,6 @@ test('buildExpiredReminderContext groups old logs without message ids by day', (
   ]
 
   const context = buildExpiredReminderContext(logs, 'Client', ['a@x.com'])
-  assert.equal(context.reminderNumber, 1)
+  assert.equal(context.reminderNumber, 2)
   assert.deepEqual(context.earlierMailDates, ['2026-10-26'])
 })

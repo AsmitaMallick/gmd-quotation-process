@@ -11,6 +11,7 @@ import {
   isPostExpiryDue,
   isPreExpiryDue,
   POST_EXPIRY_INTERVAL_DAYS,
+  PRE_EXPIRY_DAYS,
   type ReminderStage,
 } from "@/lib/pbg/reminder-rules";
 import type { ReminderEmailRow } from "@/lib/pbg/reminder-template";
@@ -55,6 +56,13 @@ export type PlannedTask = {
   nextDueAt: Date | null;
   reminderNumber?: number | null;
   earlierMailDates?: string[];
+  /** Section A rows (expired, return requested). */
+  expiredRows: PlannedTaskRow[];
+  /** Section B rows (expiring within 30 days, for information). */
+  upcomingRows: PlannedTaskRow[];
+  /** Upcoming rows that still need a BEFORE_30_DAYS log entry. */
+  preExpiryLogIds: string[];
+  /** All rows in this mail, for result counters and backwards compatibility. */
   rows: PlannedTaskRow[];
 };
 
@@ -114,6 +122,12 @@ export function buildLastExpiredSentByGroup(
   return lastSent;
 }
 
+/**
+ * Reminder number for the mail about to be sent. The expiry-day mail is
+ * reminder 1, so the number is simply the count of earlier successful cycles
+ * plus one. Failed attempts are not counted and therefore retry the same
+ * number.
+ */
 export function buildExpiredReminderContext(
   logs: PlannerLog[],
   partyName: string,
@@ -144,20 +158,49 @@ export function buildExpiredReminderContext(
   );
 
   return {
-    reminderNumber: Math.max(1, dates.length),
+    reminderNumber: dates.length + 1,
     earlierMailDates: dates.map((date) => date.toISOString().slice(0, 10)),
   };
 }
 
-function buildTask(
-  stage: ReminderStage,
-  group: PartyRecipientGroup<PlannerRow>,
-  lastSentAt: Date | null,
-  context?: ExpiredReminderContext | null,
-): PlannedTask {
+function toPlannedRow(row: PlannerRow): PlannedTaskRow {
+  return {
+    id: row.id,
+    bgNo: row.bgNo,
+    bgDate: row.bgDate,
+    bgAmtFc: row.bgAmtFc,
+    expiryDate: row.expiryDate,
+    poNumber: row.poNumber,
+    project: row.project,
+    clientName: row.clientName,
+    invoiceNos: row.invoiceNos,
+    daysUntilExpiry: row.daysUntilExpiry,
+  };
+}
+
+function compareRowsByExpiry(a: PlannerRow, b: PlannerRow): number {
+  const expiryA = String(a.expiryDate ?? "").slice(0, 10);
+  const expiryB = String(b.expiryDate ?? "").slice(0, 10);
+  if (expiryA !== expiryB) return expiryA.localeCompare(expiryB);
+  return String(a.bgNo ?? "").localeCompare(String(b.bgNo ?? ""), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
+function buildTask(input: {
+  stage: ReminderStage;
+  group: PartyRecipientGroup<PlannerRow>;
+  lastSentAt: Date | null;
+  context?: ExpiredReminderContext | null;
+  expiredRows: PlannerRow[];
+  upcomingRows: PlannerRow[];
+  preExpiryLogIds: string[];
+}): PlannedTask {
+  const allRows = [...input.expiredRows, ...input.upcomingRows];
   const poNumbers = Array.from(
     new Set(
-      group.rows
+      allRows
         .map((row) => String(row.poNumber ?? "").trim())
         .filter((value) => value !== ""),
     ),
@@ -165,34 +208,29 @@ function buildTask(
     a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
   );
 
+  const expiredRows = input.expiredRows.map(toPlannedRow);
+  const upcomingRows = input.upcomingRows.map(toPlannedRow);
+
   return {
-    stage,
-    partyName: group.partyName,
-    partyKey: group.partyKey,
+    stage: input.stage,
+    partyName: input.group.partyName,
+    partyKey: input.group.partyKey,
     poNumbers,
-    recipientKey: group.recipientKey,
-    emails: group.emails,
+    recipientKey: input.group.recipientKey,
+    emails: input.group.emails,
     onExpiryDate:
-      stage === "EXPIRED" &&
-      group.rows.every((row) => row.daysUntilExpiry === 0),
-    lastSentAt,
-    nextDueAt: lastSentAt
-      ? new Date(lastSentAt.getTime() + POST_EXPIRY_INTERVAL_DAYS * DAY_MS)
+      expiredRows.length > 0 &&
+      expiredRows.every((row) => row.daysUntilExpiry === 0),
+    lastSentAt: input.lastSentAt,
+    nextDueAt: input.lastSentAt
+      ? new Date(input.lastSentAt.getTime() + POST_EXPIRY_INTERVAL_DAYS * DAY_MS)
       : null,
-    reminderNumber: context?.reminderNumber ?? null,
-    earlierMailDates: context?.earlierMailDates ?? [],
-    rows: group.rows.map((row) => ({
-      id: row.id,
-      bgNo: row.bgNo,
-      bgDate: row.bgDate,
-      bgAmtFc: row.bgAmtFc,
-      expiryDate: row.expiryDate,
-      poNumber: row.poNumber,
-      project: row.project,
-      clientName: row.clientName,
-      invoiceNos: row.invoiceNos,
-      daysUntilExpiry: row.daysUntilExpiry,
-    })),
+    reminderNumber: input.context?.reminderNumber ?? null,
+    earlierMailDates: input.context?.earlierMailDates ?? [],
+    expiredRows,
+    upcomingRows,
+    preExpiryLogIds: input.preExpiryLogIds,
+    rows: [...expiredRows, ...upcomingRows],
   };
 }
 
@@ -210,49 +248,74 @@ export function planReminderTasks(input: {
   expiredLogs?: PlannerLog[];
   now: Date;
 }): ReminderPlanResult {
-  const preDue = input.rows.filter((row) =>
-    isPreExpiryDue({
-      days: row.daysUntilExpiry,
-      hasSent: input.preSent.has(row.id),
-      hasFailed: input.preFailed.has(row.id),
-    }),
-  );
-  const preGroups = groupByPartyRecipient(
-    preDue,
-    (row) => row.clientName,
-    (row) => row.contactPerson,
-  );
-
-  const expired = input.rows.filter((row) => row.daysUntilExpiry <= 0);
-  const expiredGroups = groupByPartyRecipient(
-    expired,
+  const groups = groupByPartyRecipient(
+    input.rows,
     (row) => row.clientName,
     (row) => row.contactPerson,
   );
 
   const tasks: PlannedTask[] = [];
-  for (const group of preGroups.values()) {
-    tasks.push(buildTask("BEFORE_30_DAYS", group, null));
-  }
 
-  for (const group of expiredGroups.values()) {
+  for (const group of groups.values()) {
+    const expiredRows = group.rows
+      .filter((row) => row.daysUntilExpiry <= 0)
+      .sort(compareRowsByExpiry);
+    const upcomingRows = group.rows
+      .filter(
+        (row) =>
+          row.daysUntilExpiry > 0 &&
+          row.daysUntilExpiry <= PRE_EXPIRY_DAYS,
+      )
+      .sort(compareRowsByExpiry);
+
+    if (expiredRows.length === 0 && upcomingRows.length === 0) continue;
+
     const lastSent = input.lastExpiredSent.get(group.key) ?? null;
-    if (
-      !isPostExpiryDue(lastSent, input.now, POST_EXPIRY_INTERVAL_DAYS)
-    ) {
-      continue;
-    }
-    const context = buildExpiredReminderContext(
-      input.expiredLogs ?? [],
-      group.partyName,
-      group.emails,
+    const expiredDue =
+      expiredRows.length > 0 &&
+      isPostExpiryDue(lastSent, input.now, POST_EXPIRY_INTERVAL_DAYS);
+
+    const preDueRows = upcomingRows.filter((row) =>
+      isPreExpiryDue({
+        days: row.daysUntilExpiry,
+        hasSent: input.preSent.has(row.id),
+        hasFailed: input.preFailed.has(row.id),
+      }),
     );
-    tasks.push(buildTask("EXPIRED", group, lastSent, context));
+
+    // If the party has expired BGs, Section B rides along on the next Section A
+    // cycle. A B-only mail is sent only when there are no expired BGs at all.
+    const sendBOnly = expiredRows.length === 0 && preDueRows.length > 0;
+    if (!expiredDue && !sendBOnly) continue;
+
+    const includeExpired = expiredDue;
+    const context = includeExpired
+      ? buildExpiredReminderContext(
+          input.expiredLogs ?? [],
+          group.partyName,
+          group.emails,
+        )
+      : null;
+    const preExpiryLogIds = upcomingRows
+      .filter((row) => !input.preSent.has(row.id))
+      .map((row) => row.id);
+
+    tasks.push(
+      buildTask({
+        stage: includeExpired ? "EXPIRED" : "BEFORE_30_DAYS",
+        group,
+        lastSentAt: lastSent,
+        context,
+        expiredRows: includeExpired ? expiredRows : [],
+        upcomingRows,
+        preExpiryLogIds,
+      }),
+    );
   }
 
   return {
     tasks,
-    skippedNoEmail: countNoEmail(preDue) + countNoEmail(expired),
+    skippedNoEmail: countNoEmail(input.rows),
     dueRows: tasks.reduce((total, task) => total + task.rows.length, 0),
   };
 }

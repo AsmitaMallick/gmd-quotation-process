@@ -65,7 +65,7 @@ export const PBG_COLUMN_DEFS: ColumnDef[] = [
     options: MAIL_TRIGGER_OPTIONS,
   },
   { key: "bgDate", label: "BG Date", type: "date", width: 115 },
-  { key: "bgAmtFc", label: "BG Amt (FC)", type: "number", align: "right", width: 130 },
+  { key: "bgAmtFc", label: "BG Amt (₹)", type: "number", align: "right", width: 130 },
   { key: "expiryDate", label: "Expiry Date", type: "date", width: 115 },
   { key: "claimDate", label: "Claim Date", type: "date", width: 115 },
   {

@@ -61,6 +61,7 @@ export default function DocketFollowUpPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const pendingPollCount = useRef(0);
+  const activeTabRef = useRef(activeTab);
 
   const fetchPortalData = useCallback(async () => {
     setLoading(true);
@@ -146,16 +147,30 @@ export default function DocketFollowUpPage() {
     } finally {
       clearTimeout(timeout);
       if (!isSilent) setIsSyncing(false);
-      fetchPortalData();
+      if (activeTabRef.current === "PORTAL_DOCKETS") fetchPortalData();
       fetchPendingData();
       setTimeout(() => setSyncStatus(null), 4000);
     }
   }, [fetchPortalData, fetchPendingData]);
 
   useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  useEffect(() => {
     // Fast first paint: the Pending tab is the default and uses the narrow
     // cached query. The heavy Portal query is loaded lazily when its tab opens.
-    fetchPendingData();
+    const kick = setTimeout(() => {
+      fetchPendingData();
+
+      // Automatic detection for new mail: at most once per 10 minutes per tab.
+      // Fire-and-forget so the page never waits on it.
+      const lastDetect = Number(sessionStorage.getItem("docket-followup-sync-at") || 0);
+      if (Date.now() - lastDetect > 10 * 60_000) {
+        sessionStorage.setItem("docket-followup-sync-at", String(Date.now()));
+        void handleSyncAndDetect(true);
+      }
+    }, 0);
 
     // 1-Hour Automatic Sync Interval (Runs in background every 60 minutes)
     const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -164,13 +179,18 @@ export default function DocketFollowUpPage() {
       handleSyncAndDetect(true);
     }, ONE_HOUR_MS);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      clearTimeout(kick);
+      clearInterval(intervalId);
+    };
   }, [fetchPendingData, handleSyncAndDetect]);
 
   // Load the Portal Dockets data only when that tab is opened (it is a much
   // heavier query over all enquiries/threads).
   useEffect(() => {
-    if (activeTab === "PORTAL_DOCKETS") fetchPortalData();
+    if (activeTab !== "PORTAL_DOCKETS") return;
+    const id = setTimeout(() => fetchPortalData(), 0);
+    return () => clearTimeout(id);
   }, [activeTab, fetchPortalData]);
 
   // While the Pending Dockets tab is open and the background queue still has

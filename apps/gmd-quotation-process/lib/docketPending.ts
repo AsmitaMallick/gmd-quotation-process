@@ -24,9 +24,34 @@ export const DOCKET_CREATION_PATTERNS = [
   /requesting\s+for\s+docket\s+creation/i,
 ];
 
+/**
+ * Context that suggests the mail is about a new docket / enquiry. Used with the
+ * GMD-client and Laser-Entry checks; the AI is the final filter, so this list is
+ * intentionally broad.
+ */
+export const DOCKET_CONTEXT_PATTERNS = [
+  /\bdocket\b/i,
+  /\brfq\b/i,
+  /\benquir(?:y|ies)\b/i,
+  /\binquir(?:y|ies)\b/i,
+  /\brate\s+required\b/i,
+  /\bbudgetary\b/i,
+  /\bquotation\b/i,
+  /\bquote\b/i,
+  /\btender\b/i,
+  /\boffer\b/i,
+  /\bspares?\b/i,
+  /\bpurchase\s+order\b/i,
+];
+
 export function hasDocketCreationKeyword(text: string): boolean {
   if (!text) return false;
   return DOCKET_CREATION_PATTERNS.some((p) => p.test(text));
+}
+
+export function hasDocketContext(text: string): boolean {
+  if (!text) return false;
+  return DOCKET_CONTEXT_PATTERNS.some((p) => p.test(text));
 }
 
 const PO_NEGATIVE = [
@@ -126,8 +151,8 @@ export function isPendingDocketCandidate(input: {
   text: string;
 }): boolean {
   if (!isGenuineGmdClientThread(input)) return false;
-  return isSentToLaserEntry(input.toDetails, input.ccDetails, input.text) ||
-    hasDocketCreationKeyword(input.text);
+  if (!isSentToLaserEntry(input.toDetails, input.ccDetails, input.text)) return false;
+  return hasDocketContext(input.text);
 }
 
 export function buildPartySearchText(input: {

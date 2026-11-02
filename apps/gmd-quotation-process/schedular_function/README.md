@@ -1301,31 +1301,44 @@ button you are wrapping is already a thin wrapper over a lib.
 directly over SMTP (no n8n). It reads only rows whose `mail_trigger` is
 `CONTINUE` and whose status is `OPEN`, `Running` or `Expired`.
 
-- **Pre-expiry:** exactly 30 calendar days before `expiry_date`, once per BG,
-  grouped by party (`client_name`) + contact.
-- **Post-expiry:** one 7-day cycle per **party + contact**. Each cycle includes
-  every currently expired, non-closed BG for that party across all its POs. A
-  BG that expires between cycles joins the next cycle automatically.
+- **Consolidated mail:** one mail per **party + contact** with two sections:
+  - **A. Expired (Return Requested):** every currently expired, non-closed BG
+    for that party across all its POs, oldest expiry first, with a
+    **Days since expiry** column and the MSME/GFR paragraph.
+  - **B. Expiring in Next 30 Days (For Information):** upcoming BGs, soonest
+    expiry first. No legal paragraph and no MSEFC wording.
+- **Cadence:** Section A repeats every 7 days. The expiry-day mail is
+  **reminder 1**; later cycles auto-increase to 2, 3, … A B-only info mail is
+  sent at the 30-day mark only when the party has no expired BGs. When expired
+  BGs exist, Section B rides along on the next Section A cycle.
+- **MSEFC:** the Section 18 provision and MSEFC escalation sentence appear only
+  from **reminder 2** onward.
+- **Returned BGs:** `CLOSED`/`Closed` rows are never eligible, so reminders stop
+  as soon as the BG is marked returned/closed.
 - **Recipients:** parsed from the `contact_person` column; one mail per party +
   contact group.
 - **Mail body:** one table per PO with PO number, project, BG details, invoice
-  numbers and a PO total. Pre-expiry uses the 30-day notice wording; the
-  expiry-day mail uses the confirmation/discharge wording; later 7-day cycles
-  use the MSME/GFR reminder wording with reminder number and earlier-mail dates.
+  numbers and **Total BG Amount**; multiple POs also show **Total BG Amount
+  Pending Return** in Section A.
 - **Branding:** the GMD logo is embedded inline at the top of every HTML mail.
-- **Signature:** all PBG mails close with Ms. Puja Agarwal, Director.
+- **Signature:** all PBG mails close with Ms. Puja Agarwal, Director, followed
+  by the company address, both phone numbers and both email addresses.
 - **Invoice numbers:** matched from `SupplyHistoryItem` by BG number first, then
   by PO number. All distinct invoices are shown; SR-series invoices are ignored.
-- **Udyam number:** interval mails read `PBG_UDYAM_NO`; when unset they show
+- **Udyam number:** Section A reads `PBG_UDYAM_NO`; when unset it shows
   `[UDYAM-XX-00-0000000]`.
-- **No party / no PO:** rows with a blank party or PO number are skipped and
-  counted in the job result (`skippedNoParty`, `skippedNoPo`,
-  `skippedNoPoBgNos`) for manual cleanup.
+- **No party / invalid PO:** rows with a blank party or an unusable PO number
+  are skipped and counted in the job result (`skippedNoParty`, `skippedNoPo`,
+  `skippedNoPoBgNos`) for manual cleanup. A PO is unusable when it is blank, a
+  placeholder (`-`, `--`, `—`, `N/A`, `NA`, `NULL`, `NIL`, `0`, `.`) or has no
+  digit at all (for example `GANJAM`); such BGs never enter Section A or B.
 - **Audit:** every attempt writes `pbg_reminder_log` (`SENT`/`FAILED`) with the
   PO number and recipient key. Failed sends retry on the next daily run.
 - **Env:** `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`,
   `MAIL_FROM`, `MAIL_FROM_NAME`, optional `PBG_REMINDER_CC`,
   `PBG_UDYAM_NO`, `PBG_REMINDER_BATCH_SIZE`, `PBG_REMINDER_DELAY_MS`.
+  `puja.agarwal@laserpowerinfra.com` is always added to CC in code, even when
+  `PBG_REMINDER_CC` is empty.
 
 Dry-run (prints recipients and rows without sending):
 
@@ -1349,7 +1362,7 @@ Send a test mail for one party (defaults to `MAIL_FROM` when `--to` is omitted):
 
 ```sh
 pnpm --filter gmd-quotation-process pbg:test-mail -- --party="G V P R ENGINEERS LIMITED" --template=before
-pnpm --filter gmd-quotation-process pbg:test-mail -- --party="G V P R ENGINEERS LIMITED" --template=expired --reminder-no=1 --earlier-dates=2026-10-26
+pnpm --filter gmd-quotation-process pbg:test-mail -- --party="G V P R ENGINEERS LIMITED" --template=consolidated --reminder-no=1 --earlier-dates=2026-10-26
 pnpm --filter gmd-quotation-process pbg:test-mail -- --party="KALPATARU PROJECTS INTERNATIONAL LIMITED" --template=expired --to=ops@example.com --dry
 ```
 
