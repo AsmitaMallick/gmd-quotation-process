@@ -17,9 +17,6 @@ export interface PhysicalStockRow {
   remarks: string | null;
   sum_of_physical_stock: string | null;
   stock_as_per_erp: string | null;
-  rate_unit: string | null;
-  rate_per_pc_qty_weight: string | null;
-  weight_per_pc: string | null;
   item_wise_value: string | null;
   moving_within_3_months: string | null;
   order_ag_approval_recvd: string | null;
@@ -40,6 +37,13 @@ export interface PhysicalStockRow {
   heat_seq: number | null;
   /** Derived (erp_code-l8_item_category-heat_no-heat_seq); blank without a heat no. */
   serial_no: string | null;
+  /**
+   * Ordered but not yet received against a GRN, summed over this item's open
+   * purchase order lines (`@gmd/purchase`). Not stored on PhysicalStock: the
+   * host app's `load()` fills it by ERP code, and leaves it null when it does
+   * not read purchase data — blank means "unknown", never "none on the way".
+   */
+  in_transit: number | null;
 }
 
 export type ActionResult<T> =

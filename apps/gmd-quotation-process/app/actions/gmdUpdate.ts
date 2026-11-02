@@ -1084,6 +1084,9 @@ export async function uploadSupplierRatesAction(rows: SupplierRate[]) {
           data: {
             erpItemCode: r.erpItemCode,
             l8ItemCategory: "TRADING VALVES", // plural, as every existing master row is stored
+            // Plural, matching every existing master row; the singular would not
+            // match the `contains`/cascade filters used elsewhere.
+            l8ItemCategory: "TRADING VALVES",
             usdRateOption: String(r.rateUsd),
             cost: inr(r.rateUsd),
             vendorReference: vendorReferenceOf(r),

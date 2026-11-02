@@ -1,4 +1,5 @@
 /** Pure joins/helpers for the Debtors dashboard: bill info, BG exposure, follow-ups, CSV. */
+import { followUpKey } from "./ledgerFollowUp";
 
 export type BillInfo = {
   orderNo: string | null; // SALE BILL ORDER_VRNO
@@ -10,7 +11,24 @@ export type BillInfo = {
   driveLink: string | null;
 };
 export type BgRow = { beneficiaryName: string | null; bgAmt: number | null; cancelledStatus: string | null };
-export type FollowUp = { owner: string | null; lastFollowUp: string | null; promisedDate: string | null; promisedAmount: string | null; status: string | null };
+export type FollowUp = {
+  owner: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  lastFollowUp: string | null; // yyyy-mm-dd
+  promisedDate: string | null; // yyyy-mm-dd
+  promisedAmount: string | null;
+  status: string | null;
+  remarks: string | null;
+  creditDays: string | null; // agreed days, blank = no written agreement
+  clientType: string | null;
+  udyamOnInvoice: string | null;
+  nextActionDate: string | null; // yyyy-mm-dd
+  samadhaanNo: string | null;
+  samadhaanStatus: string | null;
+};
+export const EMPTY_FOLLOW_UP: FollowUp = { owner: null, contactName: null, contactPhone: null, contactEmail: null, lastFollowUp: null, promisedDate: null, promisedAmount: null, status: null, remarks: null, creditDays: null, clientType: null, udyamOnInvoice: null, nextActionDate: null, samadhaanNo: null, samadhaanStatus: null };
 
 type SaleBillIn = { vrNo: string; orderVrNo: string | null; partyRefNo: string | null; itemCode: string | null };
 type SaleRegIn = { invoiceNo: string; itemName: string | null; orderCopy: string | null; invoice: string | null; inspectionReport: string | null; driveLink: string | null };
@@ -56,32 +74,26 @@ export function bgExposureByName(bgs: BgRow[]): Map<string, number> {
 }
 export const bgFor = (m: Map<string, number>, partyName: string) => m.get(key(partyName)) ?? 0;
 
+export const followUpFor = (m: Record<string, FollowUp>, accCode: string, vrNo?: string | null) => m[followUpKey(accCode, vrNo)];
+
 /**
- * Follow-up tabs (read only if present). Expected headers, matched after normalisation, missing ones stay blank:
- * OS_STAFF_ALLOC: ACC_CODE, OWNER.  OS_FOLLOWUP_LOG: ACC_CODE, FOLLOWUP_DATE, PROMISED_DATE, PROMISED_AMOUNT, STATUS (later rows win).
+ * A credit / sales-return row is TCODE "P" with PARTICULAR "Sales against Order/Bill No-<VRNO>"; returns that VRNO, else null.
+ * shortcut: matches this one wording (2 of 269 rows today), upgrade if Accounts book credit notes with another format.
  */
-export function buildFollowUps(
-  alloc: { headers: string[]; rows: string[][] } | null,
-  log: { headers: string[]; rows: string[][] } | null,
-): Record<string, FollowUp> {
-  const out: Record<string, FollowUp> = {};
-  const norm = (h: string) => key(h).replace(/_/g, " ");
-  const col = (t: { headers: string[] }, name: string) => t.headers.map(norm).indexOf(norm(name));
-  const val = (r: string[], i: number) => (i < 0 ? null : (r[i] ?? "").trim() || null);
-  const slot = (code: string) => (out[key(code)] ??= { owner: null, lastFollowUp: null, promisedDate: null, promisedAmount: null, status: null });
-  if (alloc) {
-    const c = col(alloc, "ACC_CODE"), o = col(alloc, "OWNER");
-    if (c >= 0) for (const r of alloc.rows) if (val(r, c)) slot(r[c]).owner = val(r, o);
-  }
-  if (log) {
-    const c = col(log, "ACC_CODE"), d = col(log, "FOLLOWUP_DATE"), pd = col(log, "PROMISED_DATE"), pa = col(log, "PROMISED_AMOUNT"), s = col(log, "STATUS");
-    if (c >= 0)
-      for (const r of log.rows)
-        if (val(r, c)) Object.assign(slot(r[c]), { lastFollowUp: val(r, d), promisedDate: val(r, pd), promisedAmount: val(r, pa), status: val(r, s) });
-  }
-  return out;
+export function creditNoteRefOf(particular: string | null | undefined, tCode: string | null | undefined): string | null {
+  if (tCode?.trim().toUpperCase() !== "P") return null;
+  return /Order\/Bill\s*No\s*-\s*([A-Za-z0-9][A-Za-z0-9/-]*)/i.exec(particular ?? "")?.[1] ?? null;
 }
-export const followUpFor = (m: Record<string, FollowUp>, accCode: string) => m[key(accCode)];
+
+/** Bill VRNO (normalised) to the credit-note voucher numbers that knock it off. */
+export function creditNotesByBill(rows: { vrNo: string | null; tCode: string | null; particular: string | null }[]): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const r of rows) {
+    const ref = creditNoteRefOf(r.particular, r.tCode);
+    if (ref && r.vrNo) m.set(key(ref), [...(m.get(key(ref)) ?? []), r.vrNo]);
+  }
+  return m;
+}
 
 export function toCsv(header: string[], rows: (string | number | null | undefined)[][]): string {
   const q = (v: string | number | null | undefined) => `"${String(v ?? "").replace(/"/g, '""')}"`;

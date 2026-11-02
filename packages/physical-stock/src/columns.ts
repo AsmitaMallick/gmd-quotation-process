@@ -37,6 +37,9 @@ export const COLUMNS = [
   "MAJOR/MINOR MARKING",
   "HEAT NO",
   "SERIAL NO",
+  // Derived from the purchase order lines, not from the stock sheet. Last, so
+  // every existing column keeps its index (edits look fields up by index).
+  "IN TRANSIT",
 ] as const;
 
 export type PhysicalStockHeader = (typeof COLUMNS)[number];
@@ -78,6 +81,7 @@ export const FIELDS = [
   "majorminor_marking",
   "heat_no",
   "serial_no",
+  "in_transit",
 ] as const satisfies readonly (keyof PhysicalStockRow)[];
 
 export type PhysicalStockField = (typeof FIELDS)[number];
@@ -86,6 +90,7 @@ export const fieldOf = (header: string): PhysicalStockField | undefined =>
   FIELDS[COLUMNS.indexOf(header as PhysicalStockHeader)];
 
 export const NUMERIC_COLUMNS: ReadonlySet<string> = new Set([
+  "IN TRANSIT",
   "RECEIVED QTY.",
   "DISPATCH QTY.",
   "AVAILABLE QTY.",
@@ -426,6 +431,9 @@ export function cascadedOptions(header: string, row: readonly unknown[], rows: r
   }
   const out = all.filter((o) => seen.has(normCell(o)));
   return out.length ? out : [...all];
+/** `cost * available qty` (cost comes from the BOM master), two decimals; a blank operand counts as 0. */
+export function computeItemWiseValue(cost: unknown, availableQty: unknown): string {
+  return ((parseNum(cost) ?? 0) * (parseNum(availableQty) ?? 0)).toFixed(2);
 }
 
 /** erp_code-l8_item_category-heat_no-heat_seq; null until the row has a heat no and number. */
@@ -474,9 +482,6 @@ const JOINED_FIELDS = [
 const FILLED_FIELDS = [
   "sum_of_physical_stock",
   "stock_as_per_erp",
-  "rate_unit",
-  "rate_per_pc_qty_weight",
-  "weight_per_pc",
   "purchase_in_26_27",
   "dispatched_in_26_27",
   "order_in_hand_qty",

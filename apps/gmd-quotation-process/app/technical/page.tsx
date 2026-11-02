@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import EngineeringDataPage from "@/components/technical/EngineeringDataPage";
 
 export const metadata: Metadata = {
-  title: "Technical | GMD Quotation Process",
+  title: "Technical | GMD One Person Lead Framework",
   description:
     "Live engineering tables for gate valves, flanges, gear boxes and actuators.",
 };

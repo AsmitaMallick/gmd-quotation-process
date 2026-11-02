@@ -23,6 +23,7 @@ export const NAV: NavEntry[] = [
     items: [
       { label: "Raw Material", href: "/raw_material" },
       { label: "Physical Stock", href: "/physical_stock" },
+      { label: "Purchase", href: "/purchase" },
       { label: "FG BOM", href: "/bom" },
       { label: "Auto BOM", href: "/bom/auto", adminOnly: true },
       { label: "Supply History", href: "/supply_history" },
@@ -35,6 +36,7 @@ export const NAV: NavEntry[] = [
     label: "More",
     items: [
       { label: "Debtors", href: "/debtors" },
+      { label: "Creditors", href: "/creditors" },
       { label: "Upload Image", href: "/upload-image" },
       { label: "Data Sources", href: "/data-sources" },
       { label: "GEM Bid & RA", href: "http://192.168.1.190:6012/", external: true },

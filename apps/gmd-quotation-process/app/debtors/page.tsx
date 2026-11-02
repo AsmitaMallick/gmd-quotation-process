@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import GMDUpdateHeader from "@gmd/dashboard/components/GMDUpdateHeader";
 import GMDUpdateSkeleton from "@gmd/dashboard/components/skeletons/GMDUpdateSkeleton";
 import DebtorsTable from "@/components/debtors/DebtorsTable";
+import { DEFAULT_MSME_SETTINGS } from "@/lib/msme";
 import type { DebtorTotals, DebtorsResult } from "@/lib/debtors";
 
 type DebtorsData = DebtorsResult;
@@ -78,6 +79,8 @@ export default function DebtorsPage() {
             billInfo={data?.billInfo ?? {}}
             bgs={data?.bgs ?? []}
             followUps={data?.followUps ?? {}}
+            legalCases={data?.legalCases ?? {}}
+            msme={data?.msme ?? DEFAULT_MSME_SETTINGS}
           />
         </div>
       </div>

@@ -5,6 +5,7 @@ import { computeItemWiseValue } from "@gmd/physical-stock/columns";
 /**
  * One-time backfill: set `PhysicalStock.item_wise_value` to
  * `cost (BOM master) * available qty` (2 decimals) on the stock DB table.
+ * `cost * available qty` (2 decimals) on the stock DB table.
  *
  * Missing operands count as 0, so every row gets a value. Only changed rows are
  * written; safe to re-run.

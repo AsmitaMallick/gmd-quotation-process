@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { bgExposureByName, bgFor, billInfoFor, buildBillInfo, buildFollowUps, toCsv } from '../lib/debtorJoins.js'
+import { bgExposureByName, bgFor, billInfoFor, buildBillInfo, toCsv } from '../lib/debtorJoins.js'
 
 test('bill info joins bill + register on invoice no', () => {
   const m = buildBillInfo(
@@ -23,14 +23,17 @@ test('BG exposure counts only open BGs, name matched loosely on case/spaces', ()
   assert.equal(bgFor(m, 'other'), 0)
 })
 
-test('follow-ups tolerate missing tabs and columns', () => {
-  assert.deepEqual(buildFollowUps(null, null), {})
-  const f = buildFollowUps({ headers: ['ACC_CODE', 'OWNER'], rows: [['A1', 'Ravi']] }, { headers: ['ACC_CODE', 'STATUS'], rows: [['A1', 'Promised']] })
-  assert.equal(f['A1'].owner, 'Ravi')
-  assert.equal(f['A1'].status, 'Promised')
-  assert.equal(f['A1'].promisedDate, null)
-})
-
 test('csv escapes quotes', () => {
   assert.equal(toCsv(['a'], [['x"y']]), '"a"\r\n"x""y"')
 })
+
+test("creditNoteRefOf reads the bill a P row credits, and nothing else", async () => {
+  const { creditNoteRefOf, creditNotesByBill } = await import("../lib/debtorJoins");
+  assert.equal(creditNoteRefOf("Sales against Order/Bill No-GD26Y-00139", "P"), "GD26Y-00139");
+  assert.equal(creditNoteRefOf("Sales against Challan No- GD26Y-00139 Order No-OD26Y-00108 Dt: 14-OCT-26", "S"), null);
+  assert.equal(creditNoteRefOf("Sales against Challan No- GD26Y-00139 Order No-OD26Y-00108 Dt: 14-OCT-26", "P"), null);
+  assert.equal(creditNoteRefOf("Opening balance", "P"), null);
+  assert.equal(creditNoteRefOf(null, "P"), null);
+  const m = creditNotesByBill([{ vrNo: "SR26Y-00009", tCode: "P", particular: "Sales against Order/Bill No-GD26Y-00139" }, { vrNo: "GD26Y-00139", tCode: "S", particular: "x" }]);
+  assert.deepEqual(m.get("GD26Y-00139"), ["SR26Y-00009"]);
+});

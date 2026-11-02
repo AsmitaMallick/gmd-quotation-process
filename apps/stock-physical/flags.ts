@@ -1,6 +1,8 @@
 import { flag } from "flags/next";
 import type { EditableHeader, PhysicalStockHeader } from "@gmd/physical-stock/columns";
 import type { SidebarSection } from "@gmd/physical-stock/flags";
+import type { PurchaseHeader } from "@gmd/purchase/columns";
+import type { SidebarSection as PurchaseSidebarSection } from "@gmd/purchase/flags";
 
 // Feature flags for this app. Each decide() is the single place that knows
 // where a value comes from: today a constant in this file; later it can read
@@ -65,3 +67,35 @@ export const physicalStockDuplicateErpHighlight = flag<boolean>({
   decide: () => true,
 });
   
+// Purchase: this app is the standalone Purchase dashboard, so it shows the
+// full table. Sales-contract tagging is kept; this app has no contract pages
+// to link to, but the column is still how a buyer finds the right line.
+export const purchaseDisabledColumns = flag<PurchaseHeader[]>({
+  key: "purchase-disabled-columns",
+  description: "Purchase columns removed entirely (table, filters, export)",
+  defaultValue: [],
+  decide: () => [],
+});
+
+export const purchaseHiddenSidebar = flag<PurchaseSidebarSection[]>({
+  key: "purchase-hidden-sidebar",
+  description: "Purchase summary blocks to hide",
+  defaultValue: [],
+  decide: () => [],
+});
+
+export const purchaseExcelExport = flag<boolean>({
+  key: "purchase-excel-export",
+  description: "Show the Export Excel button on the Purchase table",
+  defaultValue: true,
+  options: [{ value: true, label: "On" }, { value: false, label: "Off" }],
+  decide: () => true,
+});
+
+export const purchaseOpenOnlyByDefault = flag<boolean>({
+  key: "purchase-open-only-by-default",
+  description: "Open the Purchase table filtered to lines with material still to come",
+  defaultValue: true,
+  options: [{ value: true, label: "On" }, { value: false, label: "Off" }],
+  decide: () => true,
+});

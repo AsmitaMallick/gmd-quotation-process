@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Poppins } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import StoreProvider from "./StoreProvider";
 import Navbar from "@/components/layout/Navbar";
@@ -7,15 +7,15 @@ import { Toaster } from "@gmd/ui/components/sonner";
 import { SessionProvider } from "next-auth/react";
 import { ThemeProvider } from "@/components/layout/ThemeProvider";
 
-const poppins = Poppins({
-  variable: "--font-poppins",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "GMD Quotation Process",
+  title: "GMD One Person Lead Framework",
   description: "A web application for managing quotations in the GMD quotation process.",
 };
 
@@ -27,7 +27,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${poppins.variable} h-screen antialiased overflow-hidden`}
+      className={`${inter.variable} h-screen antialiased overflow-hidden`}
       suppressHydrationWarning
     >
       <body className="h-screen flex flex-col overflow-hidden bg-background">

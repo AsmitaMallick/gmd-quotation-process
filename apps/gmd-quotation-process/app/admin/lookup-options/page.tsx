@@ -6,7 +6,7 @@ import { getLookupOptions } from "./actions";
 import LookupOptionsManager from "./LookupOptionsManager";
 
 export const metadata = {
-  title: "Lookup Options Admin | GMD Quotation Process",
+  title: "Lookup Options Admin | GMD One Person Lead Framework",
 };
 
 export const dynamic = "force-dynamic";

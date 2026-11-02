@@ -6,6 +6,7 @@ import {
   parseSupplierRateRows,
   parseSupplierRateFile,
   planSupplierRateUpload,
+  isTradingValve,
   vendorReferenceOf,
 } from '../lib/supplierRateUpload.js'
 
@@ -78,4 +79,19 @@ test('plan accepts the plural TRADING VALVES category the master actually stores
   const plan = planSupplierRateUpload(master, [{ erpItemCode: 'ABC000001', rateUsd: 22, supplier: '', offerNo: '', offerDate: '' }])
   assert.equal(plan.updates.length, 1)
   assert.equal(plan.notMatched.length, 0)
+test('the master spells the category plural, and those rows still update', () => {
+  // Every one of the 916 real master rows is "TRADING VALVES". An exact match on
+  // the singular sent all of them to notMatched, so the upload updated nothing.
+  assert.equal(isTradingValve('TRADING VALVES'), true)
+  assert.equal(isTradingValve('TRADING VALVE'), true)
+  assert.equal(isTradingValve(' trading valves '), true)
+  assert.equal(isTradingValve('RAW MATERIAL'), false)
+
+  const master = [{ erpItemCode: 'ABC000001', usd: 20, vendorReference: '', category: 'TRADING VALVES' }]
+  const plan = planSupplierRateUpload(master, [
+    { erpItemCode: 'ABC000001', rateUsd: 25, supplier: '', offerNo: '', offerDate: '' },
+  ])
+  assert.equal(plan.notMatched.length, 0)
+  assert.equal(plan.updates.length, 1)
+  assert.equal(plan.updates[0].next.rateUsd, 25)
 })

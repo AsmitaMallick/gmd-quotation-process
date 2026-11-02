@@ -1,5 +1,6 @@
 "use client";
 
+import { validityStatus } from "@/lib/pbg/validity";
 import {
   Fragment,
   useEffect,
@@ -726,9 +727,27 @@ export function PbgGrid({
         </thead>
 
         <tbody>
-          {sortedRows.map((row, r) => (
+          {sortedRows.map((row, r) => {
+            // Past its contract validity date, or inside the 30-day window.
+            const status = validityStatus(row.extendedValidity);
+            const expiryTone =
+              status === "expired"
+                ? "bg-red-100"
+                : status === "expiring"
+                  ? "bg-amber-100"
+                  : null;
+            return (
             <Fragment key={row.id}>
-            <tr className="group">
+            <tr
+              className="group"
+              title={
+                status === "expired"
+                  ? `PBG validity expired on ${row.extendedValidity}`
+                  : status === "expiring"
+                    ? `PBG validity expires on ${row.extendedValidity}`
+                    : undefined
+              }
+            >
               <th
                 className={`sticky left-0 z-20 border-b border-r border-slate-300 px-1 text-center text-xs font-medium tabular-nums ${
                   active.r === r
@@ -750,12 +769,12 @@ export function PbgGrid({
                 const savingHere = isSaving(row.id, col.key);
                 const sticky = c === 0;
                 const zebra = r % 2 === 1;
+                // Selection still wins: a tint that hid the current range would
+                // make the grid harder to drive than the warning is worth.
                 const rowBg =
                   inRange && !isActive
                     ? "bg-indigo-50"
-                    : zebra
-                      ? "bg-slate-50/70"
-                      : "bg-white";
+                    : (expiryTone ?? (zebra ? "bg-slate-50/70" : "bg-white"));
                 // Sticky cells must stay fully opaque, otherwise the columns
                 // scrolling behind them bleed through.
                 const stickyBg = isActive
@@ -835,7 +854,8 @@ export function PbgGrid({
               </tr>
             )}
             </Fragment>
-          ))}
+            );
+          })}
         </tbody>
       </table>
 
